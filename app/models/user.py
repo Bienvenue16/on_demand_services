@@ -20,6 +20,14 @@ class User(Document):
     avatar_url: Optional[str] = None
     is_verified: bool = False
     is_active: bool = True
+    # --- Gestion des bans ---
+    is_banned: bool = False
+    banned_reason: Optional[str] = None
+    banned_at: Optional[datetime] = None
+    banned_by: Optional[str] = None  # admin_id
+    # --- Activité ---
+    last_active: Optional[datetime] = None
+    # --- Auth ---
     refresh_token: Optional[str] = None
     verification_token: Optional[str] = None
     reset_token: Optional[str] = None
@@ -27,4 +35,4 @@ class User(Document):
 
     class Settings:
         name = "users"
-        indexes = ["email", "phone"]
+        indexes = ["email", "phone", "is_banned", "role"]

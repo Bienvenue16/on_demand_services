@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.encoders import ENCODERS_BY_TYPE
+from starlette.middleware.sessions import SessionMiddleware
 from app.core.config import settings
 from app.core.database import init_db
 from app.core.exceptions import add_exception_handlers
@@ -24,16 +25,19 @@ app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 
 add_exception_handlers(app)
 
+# Sessions (nécessaire pour starlette-admin)
+app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
+
 cors_origins = ["*"] if settings.DEBUG else settings.CORS_ORIGINS.split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_credentials=not settings.DEBUG,  # credentials incompatible avec allow_origins=["*"]
+    allow_credentials=not settings.DEBUG,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.mount("/static", StaticFiles(directory=settings.UPLOAD_DIR), name="static") 
+app.mount("/static", StaticFiles(directory=settings.UPLOAD_DIR), name="static")
 
 app.include_router(auth.router,          prefix="/auth",          tags=["Auth"])
 app.include_router(users.router,         prefix="/users",         tags=["Users"])
@@ -46,3 +50,17 @@ app.include_router(notifications.router, prefix="/notifications", tags=["Notific
 app.include_router(categories.router,    prefix="/categories",    tags=["Categories"])
 app.include_router(uploads.router,       prefix="/uploads",       tags=["Uploads"])
 app.include_router(admin.router,         prefix="/admin",         tags=["Admin"])
+
+# ---------------------------------------------------------------------------
+# Panel admin UI — accessible sur /admin-panel
+# ---------------------------------------------------------------------------
+from starlette_admin.contrib.beanie import Admin  # noqa: E402
+from app.admin_panel import AdminAuthProvider, build_admin_views  # noqa: E402
+
+admin_panel = Admin(
+    title="Services App — Admin",
+    auth_provider=AdminAuthProvider(),
+    base_url="/admin-panel",
+)
+build_admin_views(admin_panel)
+admin_panel.mount_to(app)

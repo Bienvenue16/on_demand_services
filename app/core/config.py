@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     CLOUD_STORAGE_ENABLED: bool = False
     REDIS_ENABLED: bool = False
 
+    SUPER_ADMIN_EMAIL: str = ""
+    SUPER_ADMIN_PASSWORD: str = ""
+    SUPER_ADMIN_NAME: str = "Super Admin"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
