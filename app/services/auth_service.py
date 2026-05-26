@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 from fastapi import HTTPException, status
 from app.models.user import User
 from app.schemas.auth import RegisterRequest, LoginRequest, TokenResponse
@@ -28,6 +29,12 @@ async def register(body: RegisterRequest) -> MessageResponse:
         is_verified=auto_verified,
     )
     await user.insert()
+
+    # Créer un profil prestataire vide si role=provider
+    if user.role.value == "provider":
+        from app.models.provider_profile import ProviderProfile
+        await ProviderProfile(user_id=str(user.id)).insert()
+
     if not auto_verified:
         try:
             await send_verification_email(body.email, token)
@@ -58,6 +65,10 @@ async def logout(user: User) -> MessageResponse:
     return MessageResponse(message="Déconnexion réussie")
 
 
+# Fenêtre de tolérance pour les refresh concurrents (en secondes)
+_REFRESH_GRACE_SECONDS = 30
+
+
 async def refresh_token(token: str) -> TokenResponse:
     from jose import JWTError, jwt
     from app.core.config import settings
@@ -66,14 +77,35 @@ async def refresh_token(token: str) -> TokenResponse:
         user_id: str = payload.get("sub")
     except JWTError:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Token invalide")
+
     user = await User.get(user_id)
-    if not user or user.refresh_token != token:
+    if not user:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Token révoqué ou invalide")
-    new_access = create_access_token(str(user.id))
-    new_refresh = create_refresh_token(str(user.id))
-    user.refresh_token = new_refresh
-    await user.save()
-    return TokenResponse(access_token=new_access, refresh_token=new_refresh)
+
+    now = datetime.now(timezone.utc)
+
+    # Cas 1 : token == refresh actuel → rotation normale
+    if user.refresh_token == token:
+        new_access = create_access_token(str(user.id))
+        new_refresh = create_refresh_token(str(user.id))
+        user.prev_refresh_token = token
+        user.refresh_token_rotated_at = now
+        user.refresh_token = new_refresh
+        await user.save()
+        return TokenResponse(access_token=new_access, refresh_token=new_refresh)
+
+    # Cas 2 : token == ancien refresh ET dans la fenêtre de tolérance
+    # → requête concurrente : on retourne les tokens déjà émis
+    if (
+        user.prev_refresh_token == token
+        and user.refresh_token_rotated_at is not None
+        and (now - user.refresh_token_rotated_at).total_seconds() <= _REFRESH_GRACE_SECONDS
+    ):
+        # Réémet un nouvel access token (l'ancien a peut-être déjà expiré)
+        new_access = create_access_token(str(user.id))
+        return TokenResponse(access_token=new_access, refresh_token=user.refresh_token)
+
+    raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Token révoqué ou invalide")
 
 
 async def verify_email(token: str) -> MessageResponse:

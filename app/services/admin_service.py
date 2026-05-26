@@ -135,6 +135,12 @@ async def change_user_role(admin: User, user_id: str, new_role: str) -> User:
     user.role = new_role
     await user.save()
     await log_action(admin, "change_role", "user", user_id, {"old": old_role, "new": new_role})
+    # Créer un profil prestataire vide si le nouveau rôle est provider
+    if new_role == "provider":
+        from app.models.provider_profile import ProviderProfile
+        existing = await ProviderProfile.find_one(ProviderProfile.user_id == user_id)
+        if not existing:
+            await ProviderProfile(user_id=user_id).insert()
     return user
 
 

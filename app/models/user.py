@@ -29,6 +29,9 @@ class User(Document):
     last_active: Optional[datetime] = None
     # --- Auth ---
     refresh_token: Optional[str] = None
+    # Token précédent conservé pendant la fenêtre de tolérance (refresh concurrent)
+    prev_refresh_token: Optional[str] = None
+    refresh_token_rotated_at: Optional[datetime] = None
     verification_token: Optional[str] = None
     reset_token: Optional[str] = None
     created_at: datetime = datetime.now(timezone.utc)
