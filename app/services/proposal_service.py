@@ -4,6 +4,7 @@ from app.models.service_request import ServiceRequest
 from app.models.user import User
 from app.schemas.proposal import ProposalCreate
 from app.schemas.common import MessageResponse
+from app.utils.helpers import make_room_id
 from app.utils.pagination import paginate
 
 
@@ -29,7 +30,7 @@ async def my_proposals(user: User, page: int = 1, limit: int = 20) -> dict:
     return await paginate(query, page, limit)
 
 
-async def accept(proposal_id: str, user: User) -> Proposal:
+async def accept(proposal_id: str, user: User) -> dict:
     proposal = await Proposal.get(proposal_id)
     if not proposal:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Proposition introuvable")
@@ -40,7 +41,9 @@ async def accept(proposal_id: str, user: User) -> Proposal:
     await proposal.save()
     req.status = "in_progress"
     await req.save()
-    return proposal
+    # Retourner le room_id afin que le frontend puisse ouvrir le chat directement
+    room_id = make_room_id(proposal.request_id, req.client_id, proposal.provider_id)
+    return {"proposal": proposal, "room_id": room_id}
 
 
 async def decline(proposal_id: str, user: User) -> Proposal:

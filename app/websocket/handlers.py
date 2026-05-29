@@ -6,11 +6,12 @@ from app.services.message_service import save_message
 async def handle_message(room_id: str, user, data: dict, manager: ConnectionManager) -> None:
     content = data.get("content", "")
     media_url = data.get("media_url")
+    request_id = data.get("request_id")   # transmis par le client lors du 1er message de la salle
 
     if not content and not media_url:
         return
 
-    msg = await save_message(room_id, str(user.id), content, media_url)
+    msg = await save_message(room_id, str(user.id), content, media_url, request_id)
 
     payload = {
         "type": data.get("type", "text"),

@@ -6,11 +6,12 @@ from app.schemas.common import PyObjectId
 
 class MessageOut(BaseModel):
     id: PyObjectId
-    room_id: PyObjectId
-    sender_id: PyObjectId
+    room_id: str
+    sender_id: str
     content: str
     media_url: Optional[str] = None
     is_read: bool
+    request_id: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -19,14 +20,54 @@ class MessageOut(BaseModel):
 class MessageSend(BaseModel):
     content: str
     media_url: Optional[str] = None
+    request_id: Optional[str] = None   # requis pour la 1ère création d'une conversation
+
+
+class RoomCreate(BaseModel):
+    """Corps pour POST /messages/room — résout le room_id côté backend."""
+    request_id: str
+    other_user_id: str
+
+
+class RoomOut(BaseModel):
+    room_id: str
+
+
+# ---------------------------------------------------------------------------
+# Schémas de synthèse pour GET /messages/conversations
+# ---------------------------------------------------------------------------
+
+class OtherUserInfo(BaseModel):
+    id: str
+    full_name: str
+    avatar_url: Optional[str] = None
+
+
+class RequestInfo(BaseModel):
+    id: str
+    title: str
+    status: Optional[str] = None
+    client_id: Optional[str] = None
+
+
+class LastMessageOut(BaseModel):
+    id: str
+    content: str
+    sender_id: str
+    created_at: datetime
 
 
 class ConversationOut(BaseModel):
     room_id: str
-    other_user_id: str
-    last_message: Optional[MessageOut] = None
+    other_user: Optional[OtherUserInfo] = None
+    request: Optional[RequestInfo] = None
+    last_message: Optional[LastMessageOut] = None
     unread_count: int = 0
 
+
+# ---------------------------------------------------------------------------
+# Payload WebSocket sortant
+# ---------------------------------------------------------------------------
 
 class WSMessagePayload(BaseModel):
     type: str = "text"
@@ -34,4 +75,5 @@ class WSMessagePayload(BaseModel):
     media_url: Optional[str] = None
     room_id: str
     sender_id: str
+    message_id: str
     timestamp: str
