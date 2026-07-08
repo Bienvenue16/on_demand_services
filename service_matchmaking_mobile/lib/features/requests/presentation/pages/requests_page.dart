@@ -7,6 +7,7 @@ import '../../../../core/location/location_service.dart';
 import '../../../../core/utils/geo_utils.dart';
 import '../../../../core/utils/time_ago.dart';
 import '../../../../core/widgets/app_bottom_nav.dart';
+import '../../../../core/widgets/brand_header.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../domain/entities/category.dart';
 import '../../domain/entities/service_request.dart';
@@ -119,8 +120,15 @@ class _RequestsPageState extends State<RequestsPage> {
               },
               child: CustomScrollView(
                 slivers: [
-                  SliverToBoxAdapter(
-                    child: _RequestsHero(searchController: _searchController),
+                  const SliverToBoxAdapter(child: _RequestsHero()),
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                    sliver: SliverToBoxAdapter(
+                      child: _SearchField(
+                        controller: _searchController,
+                        hintText: 'Rechercher un service...',
+                      ),
+                    ),
                   ),
                   if (state.status == RequestsStatus.loading)
                     const SliverFillRemaining(
@@ -208,104 +216,46 @@ class _RequestsPageState extends State<RequestsPage> {
 }
 
 class _RequestsHero extends StatelessWidget {
-  const _RequestsHero({required this.searchController});
-
-  final TextEditingController searchController;
+  const _RequestsHero();
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final semantic = context.semanticColors;
-
-    final Widget titleWidget = isDark
-        ? RichText(
-            text: TextSpan(
-              style: theme.textTheme.headlineSmall,
-              children: [
-                TextSpan(
-                  text: 'Demandes ',
-                  style: TextStyle(color: theme.colorScheme.onSurface),
-                ),
-                TextSpan(
-                  text: 'ouvertes',
-                  style: TextStyle(color: theme.colorScheme.primary),
-                ),
-              ],
-            ),
-          )
-        : Text(
-            'Demandes ouvertes',
-            style: theme.textTheme.headlineSmall?.copyWith(color: Colors.white),
-          );
-
-    final subtitleColor =
-        isDark ? theme.colorScheme.onSurfaceVariant : Colors.white.withValues(alpha: 0.62);
-
-    final content = Padding(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          titleWidget,
-          const SizedBox(height: 4),
-          Text(
-            'Explorez les besoins publies pres de chez vous',
-            style: TextStyle(color: subtitleColor, fontSize: 12.5),
-          ),
-          const SizedBox(height: 14),
-          _SearchField(controller: searchController, isDark: isDark),
-        ],
-      ),
+    return const BrandHeader(
+      title: 'Demandes ouvertes',
+      accentSuffix: 'ouvertes',
+      subtitle: 'Explorez les besoins publies pres de chez vous',
     );
-
-    if (!isDark && semantic.heroGradient.isNotEmpty) {
-      return DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: semantic.heroGradient,
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: content,
-      );
-    }
-
-    return content;
   }
 }
 
+/// Champ de recherche generique, place sur le fond de page (pas sur le
+/// degrade de marque) pour rester coherent quel que soit le theme.
 class _SearchField extends StatelessWidget {
-  const _SearchField({required this.controller, required this.isDark});
+  const _SearchField({
+    required this.controller,
+    required this.hintText,
+  });
 
   final TextEditingController controller;
-  final bool isDark;
+  final String hintText;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final fg = isDark ? theme.colorScheme.onSurfaceVariant : Colors.white.withValues(alpha: 0.7);
+    final fg = theme.colorScheme.onSurfaceVariant;
 
     return Container(
       decoration: BoxDecoration(
-        color: isDark
-            ? theme.colorScheme.surfaceContainerHighest
-            : Colors.white.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: isDark ? theme.colorScheme.outline : Colors.white.withValues(alpha: 0.18),
-        ),
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: theme.colorScheme.outline),
       ),
       child: TextField(
         controller: controller,
-        style: TextStyle(
-          color: isDark ? theme.colorScheme.onSurface : Colors.white,
-          fontSize: 13.5,
-        ),
+        style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 13.5),
         decoration: InputDecoration(
           filled: false,
-          hintText: 'Rechercher un service...',
+          hintText: hintText,
           hintStyle: TextStyle(color: fg),
           prefixIcon: Icon(Icons.search, color: fg, size: 20),
           border: InputBorder.none,

@@ -5,8 +5,9 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
+import '../../../../app/app_semantic_colors.dart';
 import '../../../../core/widgets/app_bottom_nav.dart';
-import '../../../../core/widgets/gradient_header.dart';
+import '../../../../core/widgets/brand_header.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../domain/entities/chat_message.dart';
 import '../../domain/entities/conversation.dart';
@@ -32,19 +33,27 @@ class MessagesPage extends StatefulWidget {
 
 class _MessagesPageState extends State<MessagesPage> {
   final _messageController = TextEditingController();
+  final _conversationSearchController = TextEditingController();
   final _imagePicker = ImagePicker();
   bool _showConversationListOnMobile = true;
   bool _isComposing = false;
+  String _conversationSearchQuery = '';
 
   @override
   void initState() {
     super.initState();
     _showConversationListOnMobile = widget.initialRoomId == null;
+    _conversationSearchController.addListener(() {
+      setState(() {
+        _conversationSearchQuery = _conversationSearchController.text.trim().toLowerCase();
+      });
+    });
   }
 
   @override
   void dispose() {
     _messageController.dispose();
+    _conversationSearchController.dispose();
     super.dispose();
   }
 
@@ -84,7 +93,7 @@ class _MessagesPageState extends State<MessagesPage> {
                       flex: 4,
                       child: Column(
                         children: [
-                          _header(context, 'Messages', onBack: () => context.pop()),
+                          _conversationsHeader(context, conversations.length),
                           Expanded(
                             child: state.status == MessagesStatus.loading
                                 ? const Center(child: CircularProgressIndicator())
@@ -110,7 +119,7 @@ class _MessagesPageState extends State<MessagesPage> {
               if (_showConversationListOnMobile || activeRoomId == null) {
                 return Column(
                   children: [
-                    _header(context, 'Messages', onBack: () => context.pop()),
+                    _conversationsHeader(context, conversations.length),
                     Expanded(
                       child: state.status == MessagesStatus.loading
                           ? const Center(child: CircularProgressIndicator())
@@ -134,12 +143,43 @@ class _MessagesPageState extends State<MessagesPage> {
     );
   }
 
+  Widget _conversationsHeader(BuildContext context, int count) {
+    return Column(
+      children: [
+        BrandHeader(
+          title: 'Messages',
+          onBack: () => context.pop(),
+          subtitle: count == 0 ? 'Aucune conversation' : '$count conversation${count > 1 ? 's' : ''} en cours',
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+          child: TextField(
+            controller: _conversationSearchController,
+            style: const TextStyle(fontSize: 13.5),
+            decoration: InputDecoration(
+              hintText: 'Rechercher une conversation',
+              prefixIcon: const Icon(Icons.search, size: 20),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(vertical: 13),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _conversationsList(
     BuildContext context,
     List<Conversation> conversations,
     String? activeRoomId,
   ) {
-    if (conversations.isEmpty) {
+    final filtered = _conversationSearchQuery.isEmpty
+        ? conversations
+        : conversations
+            .where((c) => c.otherUserName.toLowerCase().contains(_conversationSearchQuery))
+            .toList();
+
+    if (filtered.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -152,25 +192,36 @@ class _MessagesPageState extends State<MessagesPage> {
                 color: Theme.of(context).colorScheme.outline,
               ),
               const SizedBox(height: 12),
-              const Text('Aucune conversation pour le moment'),
+              Text(
+                conversations.isEmpty
+                    ? 'Aucune conversation pour le moment'
+                    : 'Aucun resultat pour cette recherche',
+              ),
             ],
           ),
         ),
       );
     }
 
-    return ListView.builder(
-      itemCount: conversations.length,
+    return ListView.separated(
+      padding: const EdgeInsets.only(top: 8),
+      itemCount: filtered.length,
+      separatorBuilder: (_, __) => Divider(
+        height: 1,
+        indent: 16,
+        color: Theme.of(context).colorScheme.outlineVariant,
+      ),
       itemBuilder: (context, index) {
-        final conv = conversations[index];
+        final conv = filtered[index];
         final selected = conv.roomId == activeRoomId;
-        final subtitleParts = <String>[];
-        if (conv.requestTitle != null && conv.requestTitle!.trim().isNotEmpty) {
-          subtitleParts.add('Poste: ${conv.requestTitle!.trim()}');
-        }
-        if (conv.lastMessage != null && conv.lastMessage!.trim().isNotEmpty) {
-          subtitleParts.add(conv.lastMessage!.trim());
-        }
+        final unread = conv.unreadCount > 0;
+        final theme = Theme.of(context);
+        final subtitleText = conv.lastMessage?.trim().isNotEmpty == true
+            ? conv.lastMessage!.trim()
+            : (conv.requestTitle?.trim().isNotEmpty == true
+                ? 'Poste: ${conv.requestTitle!.trim()}'
+                : 'Aucun message');
+
         return ListTile(
           selected: selected,
           leading: CircleAvatar(
@@ -183,27 +234,36 @@ class _MessagesPageState extends State<MessagesPage> {
                   )
                 : null,
           ),
-          title: Text(conv.otherUserName),
-          subtitle: subtitleParts.isEmpty
-              ? const Text('Aucun message')
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: subtitleParts
-                      .map(
-                        (line) => Text(
-                          line,
-                          maxLines: line.startsWith('Poste:') ? 1 : 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      )
-                      .toList(),
-                ),
-          trailing: conv.unreadCount > 0
-              ? CircleAvatar(
-                  radius: 11,
+          title: Text(conv.otherUserName, style: const TextStyle(fontWeight: FontWeight.w700)),
+          subtitle: Text(
+            subtitleText,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: unread
+                ? TextStyle(fontWeight: FontWeight.w600, color: theme.colorScheme.onSurface)
+                : null,
+          ),
+          trailing: unread
+              ? Container(
+                  constraints: const BoxConstraints(minWidth: 19),
+                  height: 19,
+                  padding: const EdgeInsets.symmetric(horizontal: 5),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: theme.brightness == Brightness.dark
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.tertiary,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                   child: Text(
                     '${conv.unreadCount}',
-                    style: const TextStyle(fontSize: 11),
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                      color: theme.brightness == Brightness.dark
+                          ? theme.colorScheme.onPrimary
+                          : theme.colorScheme.onTertiary,
+                    ),
                   ),
                 )
               : null,
@@ -229,7 +289,7 @@ class _MessagesPageState extends State<MessagesPage> {
 
     return Column(
       children: [
-        _header(
+        _chatTopBar(
           context,
           activeRoomId == null ? 'Selectionnez une conversation' : 'Discussion',
           onBack: onBackMobile,
@@ -325,6 +385,9 @@ class _MessagesPageState extends State<MessagesPage> {
               final message = item as ChatMessage;
               final mine = currentUserId != null && message.senderId == currentUserId;
               final colors = Theme.of(context).colorScheme;
+              final semantic = context.semanticColors;
+              final bubbleBg = mine ? semantic.bubbleOut : semantic.bubbleIn;
+              final bubbleFg = mine ? semantic.bubbleOutForeground : semantic.bubbleInForeground;
               final hasImage = message.mediaUrl != null && message.mediaUrl!.isNotEmpty;
 
               return Align(
@@ -337,7 +400,7 @@ class _MessagesPageState extends State<MessagesPage> {
                     vertical: hasImage ? 6 : 10,
                   ),
                   decoration: BoxDecoration(
-                    color: mine ? colors.primaryContainer : colors.surfaceContainerHighest,
+                    color: bubbleBg,
                     borderRadius: BorderRadius.only(
                       topLeft: const Radius.circular(18),
                       topRight: const Radius.circular(18),
@@ -370,10 +433,10 @@ class _MessagesPageState extends State<MessagesPage> {
                         if (hasImage)
                           Padding(
                             padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
-                            child: Text(message.content),
+                            child: Text(message.content, style: TextStyle(color: bubbleFg)),
                           )
                         else
-                          Text(message.content),
+                          Text(message.content, style: TextStyle(color: bubbleFg)),
                       ],
                       Padding(
                         padding: EdgeInsets.only(
@@ -387,14 +450,18 @@ class _MessagesPageState extends State<MessagesPage> {
                           children: [
                             Text(
                               DateFormat('HH:mm').format(message.createdAt),
-                              style: Theme.of(context).textTheme.labelSmall,
+                              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: bubbleFg.withValues(alpha: 0.7),
+                              ),
                             ),
                             if (mine) ...[
                               const SizedBox(width: 4),
                               Icon(
                                 message.isRead ? Icons.done_all : Icons.done,
                                 size: 14,
-                                color: message.isRead ? colors.primary : null,
+                                color: message.isRead
+                                    ? colors.primary
+                                    : bubbleFg.withValues(alpha: 0.7),
                               ),
                             ],
                           ],
@@ -567,8 +634,29 @@ class _MessagesPageState extends State<MessagesPage> {
     }
   }
 
-  Widget _header(BuildContext context, String title, {VoidCallback? onBack}) {
-    return GradientHeader(title: title, onBack: onBack);
+  /// Barre plate (pas de degrade) pour la vue d'une conversation ouverte,
+  /// distincte de l'en-tete de marque utilise sur la liste des conversations.
+  Widget _chatTopBar(BuildContext context, String title, {VoidCallback? onBack}) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        border: Border(bottom: BorderSide(color: theme.colorScheme.outlineVariant)),
+      ),
+      child: Row(
+        children: [
+          if (onBack != null)
+            IconButton(onPressed: onBack, icon: const Icon(Icons.arrow_back)),
+          Expanded(
+            child: Text(
+              title,
+              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

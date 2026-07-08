@@ -4,6 +4,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../core/network/api_client.dart';
 import '../core/network/token_storage.dart';
+import '../core/theme/theme_cubit.dart';
+import '../core/theme/theme_preference_repository.dart';
 import '../features/auth/data/repositories/auth_repository_impl.dart';
 import '../features/auth/domain/repositories/auth_repository.dart';
 import '../features/messages/data/repositories/messages_repository_impl.dart';
@@ -37,6 +39,7 @@ class _ServiceMatchAppState extends State<ServiceMatchApp> {
   late final ProviderProfileRepositoryImpl _providerProfileRepository;
   late final AuthBloc _authBloc;
   late final RequestsBloc _requestsBloc;
+  late final ThemeCubit _themeCubit;
   late final router = AppRouter.create(_authBloc);
 
   @override
@@ -51,12 +54,14 @@ class _ServiceMatchAppState extends State<ServiceMatchApp> {
     _providerProfileRepository = ProviderProfileRepositoryImpl(_apiClient);
     _authBloc = AuthBloc(_authRepository)..add(const AuthAppStarted());
     _requestsBloc = RequestsBloc(_requestsRepository);
+    _themeCubit = ThemeCubit(ThemePreferenceRepository());
   }
 
   @override
   void dispose() {
     _authBloc.close();
     _requestsBloc.close();
+    _themeCubit.close();
     _apiClient.dispose();
     super.dispose();
   }
@@ -75,14 +80,20 @@ class _ServiceMatchAppState extends State<ServiceMatchApp> {
         providers: [
           BlocProvider.value(value: _authBloc),
           BlocProvider.value(value: _requestsBloc),
+          BlocProvider.value(value: _themeCubit),
         ],
-        child: MaterialApp.router(
-          title: 'Service Matchmaking',
-          debugShowCheckedModeBanner: false,
-          theme: AppTheme.light(),
-          darkTheme: AppTheme.dark(),
-          themeMode: ThemeMode.system,
-          routerConfig: router,
+        child: BlocBuilder<ThemeCubit, ThemeMode>(
+          bloc: _themeCubit,
+          builder: (context, themeMode) {
+            return MaterialApp.router(
+              title: 'Service Matchmaking',
+              debugShowCheckedModeBanner: false,
+              theme: AppTheme.light(),
+              darkTheme: AppTheme.dark(),
+              themeMode: themeMode,
+              routerConfig: router,
+            );
+          },
         ),
       ),
     );

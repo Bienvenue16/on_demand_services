@@ -1,4 +1,5 @@
 from fastapi import HTTPException, status
+from fastapi.encoders import jsonable_encoder
 from app.models.proposal import Proposal
 from app.models.service_request import ServiceRequest
 from app.models.user import User
@@ -27,7 +28,33 @@ async def list_by_request(request_id: str, page: int = 1, limit: int = 20) -> di
 
 async def my_proposals(user: User, page: int = 1, limit: int = 20) -> dict:
     query = Proposal.find(Proposal.provider_id == str(user.id)).sort(-Proposal.created_at)
-    return await paginate(query, page, limit)
+    result = await paginate(query, page, limit)
+
+    data = []
+    for proposal in result["data"]:
+        item = jsonable_encoder(proposal)
+        req = await ServiceRequest.get(proposal.request_id)
+        if req:
+            client = await User.get(req.client_id)
+            item["request"] = {
+                "id": str(req.id),
+                "title": req.title,
+                "urgency": req.urgency,
+                "status": req.status,
+                "category_id": req.category_id,
+                "photos": req.photos,
+                "location": jsonable_encoder(req.location) if req.location else None,
+                "client_id": req.client_id,
+                "client": {
+                    "id": str(client.id),
+                    "full_name": client.full_name,
+                    "avatar_url": client.avatar_url,
+                } if client else None,
+            }
+        data.append(item)
+
+    result["data"] = data
+    return result
 
 
 async def accept(proposal_id: str, user: User) -> dict:

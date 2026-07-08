@@ -113,16 +113,21 @@ async def send(room_id: str, body: MessageSend, user: User) -> Message:
     await msg.insert()
 
     # Diffuse en temps reel aux clients connectes sur ce salon (ex: envoi via REST
-    # pendant que l'autre participant est connecte en WebSocket).
-    await manager.send_to_room(room_id, {
-        "type": "text",
-        "content": msg.content,
-        "media_url": msg.media_url,
-        "room_id": room_id,
-        "sender_id": str(user.id),
-        "message_id": str(msg.id),
-        "timestamp": msg.created_at.isoformat(),
-    })
+    # pendant que l'autre participant est connecte en WebSocket). L'expediteur
+    # est exclu : il a deja son message localement via la reponse de cet appel.
+    await manager.send_to_room(
+        room_id,
+        {
+            "type": "text",
+            "content": msg.content,
+            "media_url": msg.media_url,
+            "room_id": room_id,
+            "sender_id": str(user.id),
+            "message_id": str(msg.id),
+            "timestamp": msg.created_at.isoformat(),
+        },
+        exclude_user_id=str(user.id),
+    )
 
     return msg
 
@@ -135,11 +140,15 @@ async def mark_read(room_id: str, user: User) -> dict:
     ).update({"$set": {"is_read": True}})
 
     # Notifie en temps reel l'autre participant que ses messages ont ete lus (accuse de lecture).
-    await manager.send_to_room(room_id, {
-        "type": "read",
-        "room_id": room_id,
-        "reader_id": str(user.id),
-    })
+    await manager.send_to_room(
+        room_id,
+        {
+            "type": "read",
+            "room_id": room_id,
+            "reader_id": str(user.id),
+        },
+        exclude_user_id=str(user.id),
+    )
 
     return {"message": "Messages marqués comme lus"}
 

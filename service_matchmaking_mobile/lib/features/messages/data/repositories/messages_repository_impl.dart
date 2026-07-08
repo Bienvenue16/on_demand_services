@@ -391,7 +391,10 @@ class MessagesRepositoryImpl implements MessagesRepository {
 
   ChatMessage _mapMessage(Map<dynamic, dynamic> item, {required String roomId}) {
     return ChatMessage(
-      id: (item['id'] ?? item['_id'] ?? DateTime.now().microsecondsSinceEpoch.toString())
+      // 'message_id' est la cle utilisee par les payloads WebSocket ; 'id'/'_id'
+      // par les reponses REST. Sans ce fallback, l'anti-doublon (comparaison
+      // d'id) ne matche jamais entre les deux sources et le message apparait deux fois.
+      id: (item['id'] ?? item['_id'] ?? item['message_id'] ?? DateTime.now().microsecondsSinceEpoch.toString())
           .toString(),
       roomId: (item['room_id'] ?? roomId).toString(),
       senderId: (item['sender_id'] ?? '').toString(),

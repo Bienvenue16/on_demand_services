@@ -34,6 +34,7 @@ abstract class RequestsRepository {
   });
   Future<String?> acceptProposal(String proposalId);
   Future<void> declineProposal(String proposalId);
+  Future<void> deleteProposal(String proposalId);
   Future<List<Proposal>> getMyProposals();
   Future<void> updateRequestStatus({
     required String requestId,

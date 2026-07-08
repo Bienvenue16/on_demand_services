@@ -198,6 +198,11 @@ class RequestsRepositoryImpl implements RequestsRepository {
   }
 
   @override
+  Future<void> deleteProposal(String proposalId) async {
+    await _apiClient.delete('/proposals/$proposalId');
+  }
+
+  @override
   Future<List<Proposal>> getMyProposals() async {
     final data = await _apiClient.get('/proposals/mine', query: {
       'page': 1,
@@ -208,21 +213,36 @@ class RequestsRepositoryImpl implements RequestsRepository {
     return (rawItems is List ? rawItems : <dynamic>[])
         .whereType<Map<dynamic, dynamic>>()
         .map(
-          (item) => Proposal(
-            id: (item['id'] ?? item['_id'] ?? '').toString(),
-            requestId: (item['request_id'] ?? '').toString(),
-            providerId: (item['provider_id'] ?? '').toString(),
-            message: (item['message'] ?? '').toString(),
-            status: (item['status'] ?? 'pending').toString(),
-            providerName: _extractProviderName(item),
-            providerAvatarUrl: _extractProviderAvatarUrl(item),
-            requestTitle: _extractRequestMap(item)?['title']?.toString(),
-            requestUrgency: _extractRequestMap(item)?['urgency']?.toString(),
-            requestStatus: _extractRequestMap(item)?['status']?.toString(),
-            requestPhotos: _extractRequestPhotos(item),
-            priceEstimate: _toDoubleOrNull(item['price_estimate']),
-            createdAt: DateTime.tryParse((item['created_at'] ?? '').toString()),
-          ),
+          (item) {
+            final requestMap = _extractRequestMap(item);
+            final clientMap = requestMap?['client'];
+            final client = clientMap is Map<dynamic, dynamic> ? clientMap : null;
+            final location = requestMap?['location'];
+            final locationMap = location is Map<dynamic, dynamic> ? location : null;
+
+            return Proposal(
+              id: (item['id'] ?? item['_id'] ?? '').toString(),
+              requestId: (item['request_id'] ?? '').toString(),
+              providerId: (item['provider_id'] ?? '').toString(),
+              message: (item['message'] ?? '').toString(),
+              status: (item['status'] ?? 'pending').toString(),
+              providerName: _extractProviderName(item),
+              providerAvatarUrl: _extractProviderAvatarUrl(item),
+              requestTitle: requestMap?['title']?.toString(),
+              requestUrgency: requestMap?['urgency']?.toString(),
+              requestStatus: requestMap?['status']?.toString(),
+              requestPhotos: _extractRequestPhotos(item),
+              requestCategoryId: requestMap?['category_id']?.toString(),
+              clientId: requestMap?['client_id']?.toString(),
+              clientName: client?['full_name']?.toString(),
+              clientAvatarUrl: (client?['avatar_url']?.toString().trim().isNotEmpty ?? false)
+                  ? _normalizeMediaUrl(client!['avatar_url'].toString().trim())
+                  : null,
+              clientLocationAddress: locationMap?['address']?.toString(),
+              priceEstimate: _toDoubleOrNull(item['price_estimate']),
+              createdAt: DateTime.tryParse((item['created_at'] ?? '').toString()),
+            );
+          },
         )
         .toList();
   }

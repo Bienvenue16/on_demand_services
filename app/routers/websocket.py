@@ -12,7 +12,7 @@ async def ws_chat(room_id: str, ws: WebSocket, token: str = Query(...)):
     if not user:
         await ws.close(code=4001)
         return
-    await manager.connect(room_id, ws)
+    await manager.connect(room_id, ws, str(user.id))
     try:
         while True:
             data = await ws.receive_json()
