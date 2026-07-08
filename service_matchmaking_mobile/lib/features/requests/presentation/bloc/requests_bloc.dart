@@ -31,7 +31,12 @@ class RequestsBloc extends Bloc<RequestsEvent, RequestsState> {
     RequestsCategoryChanged event,
     Emitter<RequestsState> emit,
   ) async {
-    emit(state.copyWith(selectedCategoryId: event.categoryId));
+    emit(
+      state.copyWith(
+        selectedCategoryId: event.categoryId,
+        clearSelectedCategoryId: event.categoryId == null,
+      ),
+    );
     await _loadData(emit);
   }
 

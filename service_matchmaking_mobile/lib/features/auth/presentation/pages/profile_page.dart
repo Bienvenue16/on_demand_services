@@ -209,6 +209,23 @@ class _ProfilePageState extends State<ProfilePage> {
                       ),
                     ),
                   ),
+                  if (user.isProvider)
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                      sliver: SliverToBoxAdapter(
+                        child: Card(
+                          child: ListTile(
+                            leading: const Icon(Icons.work_outline),
+                            title: const Text('Profil prestataire'),
+                            subtitle: const Text(
+                              'Bio, competences, zone d\'intervention, portfolio...',
+                            ),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () => context.push('/provider/profile'),
+                          ),
+                        ),
+                      ),
+                    ),
                   SliverPadding(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                     sliver: SliverToBoxAdapter(

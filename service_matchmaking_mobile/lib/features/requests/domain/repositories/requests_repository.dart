@@ -21,6 +21,8 @@ abstract class RequestsRepository {
     required String description,
     required String urgency,
     String? locationAddress,
+    double? locationLat,
+    double? locationLng,
     List<String> photos = const [],
   });
   Future<String?> uploadRequestImage(String filePath);

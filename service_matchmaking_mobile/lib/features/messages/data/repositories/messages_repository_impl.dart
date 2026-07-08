@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:dio/dio.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../../../../core/network/api_client.dart';
@@ -21,9 +22,19 @@ class MessagesRepositoryImpl implements MessagesRepository {
       StreamController<ChatMessage>.broadcast();
   final StreamController<bool> _connectionController =
       StreamController<bool>.broadcast();
+  final StreamController<TypingEvent> _typingController =
+      StreamController<TypingEvent>.broadcast();
+  final StreamController<String> _readController =
+      StreamController<String>.broadcast();
 
   @override
   Stream<bool> get connectionStatus => _connectionController.stream;
+
+  @override
+  Stream<TypingEvent> get typingEvents => _typingController.stream;
+
+  @override
+  Stream<String> get readEvents => _readController.stream;
 
   @override
   Future<String> startConversation(String requestId, String recipientId) async {
@@ -87,11 +98,40 @@ class MessagesRepositoryImpl implements MessagesRepository {
   }
 
   @override
-  Future<void> sendMessage({
+  Future<ChatMessage> sendMessage({
     required String roomId,
     required String content,
+    String? mediaUrl,
   }) async {
-    await _apiClient.post('/messages/$roomId', data: {'content': content});
+    final data = await _apiClient.post('/messages/$roomId', data: {
+      'content': content,
+      if (mediaUrl != null && mediaUrl.isNotEmpty) 'media_url': mediaUrl,
+    });
+    return _mapMessage(data, roomId: roomId);
+  }
+
+  @override
+  Future<String?> uploadChatImage(String filePath) async {
+    final data = await _apiClient.postMultipart(
+      '/uploads/image',
+      data: FormData.fromMap({
+        'file': await MultipartFile.fromFile(filePath),
+        'file_type': 'message',
+      }),
+    );
+    final raw = (data['url'] ?? data['file_url'] ?? data['path'])?.toString();
+    return _normalizeUrl(raw);
+  }
+
+  @override
+  Future<void> sendTyping(String roomId, bool isTyping) async {
+    final channel = _channel;
+    if (channel == null) return;
+    try {
+      channel.sink.add(jsonEncode({'type': 'typing', 'is_typing': isTyping}));
+    } catch (_) {
+      // Le statut de frappe est un bonus best-effort : on ignore les erreurs d'envoi.
+    }
   }
 
   @override
@@ -119,8 +159,20 @@ class MessagesRepositoryImpl implements MessagesRepository {
         (event) {
           try {
             final payload = event is String ? jsonDecode(event) : event;
-            if (payload is Map<String, dynamic>) {
-              _controller.add(_mapMessage(payload, roomId: roomId));
+            if (payload is! Map<String, dynamic>) return;
+
+            switch (payload['type']?.toString() ?? 'text') {
+              case 'typing':
+                _typingController.add((
+                  senderId: (payload['sender_id'] ?? '').toString(),
+                  isTyping: payload['is_typing'] == true,
+                ));
+                break;
+              case 'read':
+                _readController.add((payload['reader_id'] ?? '').toString());
+                break;
+              default:
+                _controller.add(_mapMessage(payload, roomId: roomId));
             }
           } catch (_) {
             // Ignore malformed websocket payloads.
@@ -347,6 +399,7 @@ class MessagesRepositoryImpl implements MessagesRepository {
       createdAt: DateTime.tryParse((item['created_at'] ?? item['timestamp'] ?? '').toString()) ??
           DateTime.now(),
       isRead: item['is_read'] == true,
+      mediaUrl: _normalizeUrl(item['media_url']?.toString()),
     );
   }
 
@@ -354,5 +407,7 @@ class MessagesRepositoryImpl implements MessagesRepository {
     await disconnectRoom();
     await _connectionController.close();
     await _controller.close();
+    await _typingController.close();
+    await _readController.close();
   }
 }

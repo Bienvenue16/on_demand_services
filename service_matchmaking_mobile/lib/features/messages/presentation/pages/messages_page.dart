@@ -1,15 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../../../../core/widgets/app_bottom_nav.dart';
+import '../../../../core/widgets/gradient_header.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
+import '../../domain/entities/chat_message.dart';
 import '../../domain/entities/conversation.dart';
 import '../../domain/repositories/messages_repository.dart';
 import '../bloc/messages_bloc.dart';
 import '../bloc/messages_event.dart';
 import '../bloc/messages_state.dart';
+
+const _quickEmojis = [
+  '😀', '😂', '😍', '👍', '🙏', '❤️', '😢', '😮',
+  '🔥', '🎉', '👏', '😅', '🤔', '😎', '😊', '👌',
+  '💯', '🥳', '😴', '🙌', '😉', '🤝', '📷', '⏰',
+];
 
 class MessagesPage extends StatefulWidget {
   const MessagesPage({super.key, this.initialRoomId});
@@ -22,6 +32,7 @@ class MessagesPage extends StatefulWidget {
 
 class _MessagesPageState extends State<MessagesPage> {
   final _messageController = TextEditingController();
+  final _imagePicker = ImagePicker();
   bool _showConversationListOnMobile = true;
   bool _isComposing = false;
 
@@ -128,6 +139,26 @@ class _MessagesPageState extends State<MessagesPage> {
     List<Conversation> conversations,
     String? activeRoomId,
   ) {
+    if (conversations.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.chat_bubble_outline,
+                size: 48,
+                color: Theme.of(context).colorScheme.outline,
+              ),
+              const SizedBox(height: 12),
+              const Text('Aucune conversation pour le moment'),
+            ],
+          ),
+        ),
+      );
+    }
+
     return ListView.builder(
       itemCount: conversations.length,
       itemBuilder: (context, index) {
@@ -194,6 +225,8 @@ class _MessagesPageState extends State<MessagesPage> {
   }) {
     final hasActiveConversation = activeRoomId != null;
     final activeConversation = _conversationForRoom(state.conversations, activeRoomId);
+    final timeline = _buildTimeline(state.activeMessages);
+
     return Column(
       children: [
         _header(
@@ -235,10 +268,17 @@ class _MessagesPageState extends State<MessagesPage> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        activeConversation.requestTitle?.trim().isNotEmpty == true
-                            ? 'Poste concerné: ${activeConversation.requestTitle}'
-                            : 'Conversation liée à une demande',
-                        style: Theme.of(context).textTheme.bodySmall,
+                        state.isOtherTyping
+                            ? 'En train d\'ecrire...'
+                            : (activeConversation.requestTitle?.trim().isNotEmpty == true
+                                ? 'Poste concerné: ${activeConversation.requestTitle}'
+                                : 'Conversation liée à une demande'),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: state.isOtherTyping
+                                  ? Theme.of(context).colorScheme.primary
+                                  : null,
+                              fontStyle: state.isOtherTyping ? FontStyle.italic : null,
+                            ),
                       ),
                     ],
                   ),
@@ -246,35 +286,27 @@ class _MessagesPageState extends State<MessagesPage> {
               ],
             ),
           ),
-        if (hasActiveConversation)
+        if (hasActiveConversation && !state.isSocketConnected)
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            color: state.isSocketConnected
-                ? Theme.of(context).colorScheme.tertiaryContainer
-                : Theme.of(context).colorScheme.errorContainer,
+            color: Theme.of(context).colorScheme.errorContainer,
             child: Row(
               children: [
-                Icon(
-                  state.isSocketConnected ? Icons.wifi : Icons.wifi_off,
-                  size: 16,
-                ),
+                const Icon(Icons.wifi_off, size: 16),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    state.isSocketConnected
-                        ? 'Connecte en temps reel'
-                        : 'Connexion perdue. Tentative de reconnexion...',
+                    'Connexion perdue. Tentative de reconnexion...',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
-                if (!state.isSocketConnected)
-                  TextButton(
-                    onPressed: () {
-                      context.read<MessagesBloc>().add(const MessagesReconnectRequested());
-                    },
-                    child: const Text('Reconnecter'),
-                  ),
+                TextButton(
+                  onPressed: () {
+                    context.read<MessagesBloc>().add(const MessagesReconnectRequested());
+                  },
+                  child: const Text('Reconnecter'),
+                ),
               ],
             ),
           ),
@@ -282,17 +314,28 @@ class _MessagesPageState extends State<MessagesPage> {
           child: ListView.builder(
             reverse: true,
             padding: const EdgeInsets.all(12),
-            itemCount: state.activeMessages.length,
+            itemCount: timeline.length,
             itemBuilder: (context, index) {
-              final message = state.activeMessages[state.activeMessages.length - 1 - index];
+              final item = timeline[timeline.length - 1 - index];
+
+              if (item is DateTime) {
+                return _DateSeparator(date: item);
+              }
+
+              final message = item as ChatMessage;
               final mine = currentUserId != null && message.senderId == currentUserId;
               final colors = Theme.of(context).colorScheme;
+              final hasImage = message.mediaUrl != null && message.mediaUrl!.isNotEmpty;
+
               return Align(
                 alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
                 child: Container(
                   margin: const EdgeInsets.only(bottom: 10),
-                  constraints: const BoxConstraints(maxWidth: 360),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  constraints: const BoxConstraints(maxWidth: 320),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: hasImage ? 6 : 14,
+                    vertical: hasImage ? 6 : 10,
+                  ),
                   decoration: BoxDecoration(
                     color: mine ? colors.primaryContainer : colors.surfaceContainerHighest,
                     borderRadius: BorderRadius.only(
@@ -306,11 +349,56 @@ class _MessagesPageState extends State<MessagesPage> {
                     crossAxisAlignment:
                         mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                     children: [
-                      Text(message.content),
-                      const SizedBox(height: 6),
-                      Text(
-                        DateFormat('HH:mm').format(message.createdAt),
-                        style: Theme.of(context).textTheme.labelSmall,
+                      if (hasImage)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: Image.network(
+                            message.mediaUrl!,
+                            width: 220,
+                            height: 220,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              width: 220,
+                              height: 220,
+                              color: colors.surfaceContainerHighest,
+                              alignment: Alignment.center,
+                              child: const Icon(Icons.broken_image_outlined),
+                            ),
+                          ),
+                        ),
+                      if (message.content.trim().isNotEmpty) ...[
+                        if (hasImage)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+                            child: Text(message.content),
+                          )
+                        else
+                          Text(message.content),
+                      ],
+                      Padding(
+                        padding: EdgeInsets.only(
+                          top: 6,
+                          left: hasImage ? 8 : 0,
+                          right: hasImage ? 8 : 0,
+                          bottom: hasImage ? 4 : 0,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              DateFormat('HH:mm').format(message.createdAt),
+                              style: Theme.of(context).textTheme.labelSmall,
+                            ),
+                            if (mine) ...[
+                              const SizedBox(width: 4),
+                              Icon(
+                                message.isRead ? Icons.done_all : Icons.done,
+                                size: 14,
+                                color: message.isRead ? colors.primary : null,
+                              ),
+                            ],
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -320,65 +408,151 @@ class _MessagesPageState extends State<MessagesPage> {
           ),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-          child: Column(
+          padding: const EdgeInsets.fromLTRB(8, 8, 12, 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              if (_isComposing && hasActiveConversation)
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Text(
-                      'Vous etes en train d\'ecrire...',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
+              IconButton(
+                tooltip: 'Emoji',
+                onPressed: activeRoomId == null ? null : _showEmojiPicker,
+                icon: const Icon(Icons.emoji_emotions_outlined),
+              ),
+              IconButton(
+                tooltip: 'Joindre une photo',
+                onPressed: activeRoomId == null
+                    ? null
+                    : () => _pickAndSendImage(context, activeRoomId),
+                icon: const Icon(Icons.image_outlined),
+              ),
+              Expanded(
+                child: TextField(
+                  controller: _messageController,
+                  enabled: activeRoomId != null,
+                  minLines: 1,
+                  maxLines: 4,
+                  textCapitalization: TextCapitalization.sentences,
+                  onChanged: (value) {
+                    final composing = value.trim().isNotEmpty;
+                    if (composing != _isComposing) {
+                      _isComposing = composing;
+                      if (activeRoomId != null) {
+                        context.read<MessagesBloc>().add(MessagesTypingRequested(composing));
+                      }
+                    }
+                  },
+                  decoration: const InputDecoration(
+                    hintText: 'Votre message...',
                   ),
                 ),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _messageController,
-                      enabled: activeRoomId != null,
-                      onChanged: (value) {
-                        final composing = value.trim().isNotEmpty;
-                        if (composing != _isComposing) {
-                          setState(() => _isComposing = composing);
-                        }
+              ),
+              const SizedBox(width: 8),
+              IconButton.filled(
+                onPressed: activeRoomId == null
+                    ? null
+                    : () {
+                        final text = _messageController.text.trim();
+                        if (text.isEmpty) return;
+                        context.read<MessagesBloc>().add(
+                              MessagesSendRequested(
+                                roomId: activeRoomId,
+                                content: text,
+                              ),
+                            );
+                        _messageController.clear();
+                        _isComposing = false;
                       },
-                      decoration: const InputDecoration(
-                        hintText: 'Votre message...',
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton.icon(
-                    onPressed: activeRoomId == null
-                        ? null
-                        : () {
-                            final text = _messageController.text.trim();
-                            if (text.isEmpty) return;
-                            context.read<MessagesBloc>().add(
-                                  MessagesSendRequested(
-                                    roomId: activeRoomId,
-                                    content: text,
-                                  ),
-                                );
-                            _messageController.clear();
-                            if (_isComposing) {
-                              setState(() => _isComposing = false);
-                            }
-                          },
-                    icon: const Icon(Icons.send),
-                    label: const Text('Envoyer'),
-                  ),
-                ],
+                icon: const Icon(Icons.send),
               ),
             ],
           ),
         ),
       ],
     );
+  }
+
+  Future<void> _pickAndSendImage(BuildContext context, String roomId) async {
+    try {
+      final file = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 80,
+        maxWidth: 1600,
+        requestFullMetadata: false,
+      );
+      if (!context.mounted || file == null) {
+        return;
+      }
+      context.read<MessagesBloc>().add(
+            MessagesImageSendRequested(roomId: roomId, filePath: file.path),
+          );
+    } on PlatformException catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Selection d\'image indisponible: ${e.message ?? e.code}')),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Impossible de choisir la photo: $e')),
+      );
+    }
+  }
+
+  Future<void> _showEmojiPicker() async {
+    final emoji = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: _quickEmojis
+              .map(
+                (emoji) => InkWell(
+                  borderRadius: BorderRadius.circular(24),
+                  onTap: () => Navigator.of(sheetContext).pop(emoji),
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Text(emoji, style: const TextStyle(fontSize: 26)),
+                  ),
+                ),
+              )
+              .toList(),
+        ),
+      ),
+    );
+
+    if (emoji == null || !mounted) return;
+
+    final text = _messageController.text;
+    final selection = _messageController.selection;
+    final insertAt = selection.start >= 0 ? selection.start : text.length;
+    final removeEnd = selection.end >= 0 ? selection.end : insertAt;
+    final newText = text.replaceRange(insertAt, removeEnd, emoji);
+    _messageController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: insertAt + emoji.length),
+    );
+  }
+
+  List<Object> _buildTimeline(List<ChatMessage> messages) {
+    final items = <Object>[];
+    DateTime? lastDay;
+
+    for (final message in messages) {
+      final day = DateTime(
+        message.createdAt.year,
+        message.createdAt.month,
+        message.createdAt.day,
+      );
+      if (lastDay == null || day != lastDay) {
+        items.add(day);
+        lastDay = day;
+      }
+      items.add(message);
+    }
+
+    return items;
   }
 
   Conversation? _conversationForRoom(List<Conversation> conversations, String? roomId) {
@@ -394,32 +568,41 @@ class _MessagesPageState extends State<MessagesPage> {
   }
 
   Widget _header(BuildContext context, String title, {VoidCallback? onBack}) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Theme.of(context).colorScheme.primaryContainer,
-            Theme.of(context).colorScheme.surface,
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
-      child: Row(
-        children: [
-          if (onBack != null)
-            IconButton(
-              onPressed: onBack,
-              icon: const Icon(Icons.arrow_back),
-            ),
-          Expanded(
-            child: Text(
-              title,
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
+    return GradientHeader(title: title, onBack: onBack);
+  }
+}
+
+class _DateSeparator extends StatelessWidget {
+  const _DateSeparator({required this.date});
+
+  final DateTime date;
+
+  String _label() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+
+    if (date == today) return 'Aujourd\'hui';
+    if (date == yesterday) return 'Hier';
+    return DateFormat('dd/MM/yyyy').format(date);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(999),
           ),
-        ],
+          child: Text(
+            _label(),
+            style: Theme.of(context).textTheme.labelSmall,
+          ),
+        ),
       ),
     );
   }

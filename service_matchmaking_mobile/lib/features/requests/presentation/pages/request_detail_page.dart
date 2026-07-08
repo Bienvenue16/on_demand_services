@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/widgets/gradient_header.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../messages/domain/repositories/messages_repository.dart';
+import '../../domain/entities/category.dart';
 import '../../domain/entities/proposal.dart';
 import '../../domain/repositories/requests_repository.dart';
 import '../bloc/request_detail_bloc.dart';
@@ -23,12 +25,33 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
   final _proposalMessageController = TextEditingController();
   final _proposalPriceController = TextEditingController();
   late final RequestDetailBloc _requestDetailBloc;
+  List<Category> _categories = const [];
 
   @override
   void initState() {
     super.initState();
     _requestDetailBloc = RequestDetailBloc(context.read<RequestsRepository>())
       ..add(RequestDetailStarted(widget.requestId));
+    _loadCategories();
+  }
+
+  Future<void> _loadCategories() async {
+    try {
+      final categories = await context.read<RequestsRepository>().getCategories();
+      if (!mounted) return;
+      setState(() => _categories = categories);
+    } catch (_) {
+      // Le badge de categorie est un simple bonus visuel : on l'ignore silencieusement en cas d'echec.
+    }
+  }
+
+  Category? _categoryFor(String categoryId) {
+    for (final category in _categories) {
+      if (category.id == categoryId) {
+        return category;
+      }
+    }
+    return null;
   }
 
   @override
@@ -46,8 +69,15 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
     final isProviderUser = currentUser?.isProvider == true;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Detail de la demande')),
-      body: BlocConsumer<RequestDetailBloc, RequestDetailState>(
+      body: SafeArea(
+        child: Column(
+          children: [
+            GradientHeader(
+              title: 'Detail de la demande',
+              onBack: () => context.pop(),
+            ),
+            Expanded(
+              child: BlocConsumer<RequestDetailBloc, RequestDetailState>(
           bloc: _requestDetailBloc,
           listenWhen: (previous, current) {
             final isFailure = current.status == RequestDetailStatus.failure &&
@@ -97,6 +127,7 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
             final isProvider = isProviderUser;
             final hasAlreadyProposed = currentUser != null &&
               state.proposals.any((proposal) => proposal.providerId == currentUser.id);
+            final category = _categoryFor(request.categoryId);
 
             return ListView(
               padding: const EdgeInsets.all(16),
@@ -107,6 +138,16 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        if (category != null) ...[
+                          Text(
+                            category.label,
+                            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                                  color: Theme.of(context).colorScheme.primary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                          const SizedBox(height: 4),
+                        ],
                         Row(
                           children: [
                             Expanded(
@@ -304,7 +345,11 @@ class _RequestDetailPageState extends State<RequestDetailPage> {
               ],
             );
           },
+              ),
+            ),
+          ],
         ),
+      ),
     );
   }
 }

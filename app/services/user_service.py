@@ -1,6 +1,7 @@
+from datetime import datetime, timezone
 from fastapi import HTTPException, status
 from app.models.user import User
-from app.models.provider_profile import ProviderProfile
+from app.models.provider_profile import ProviderProfile, Location
 from app.schemas.user import UserUpdate, ProviderProfileUpdate
 from app.schemas.common import MessageResponse
 from app.utils.pagination import paginate
@@ -52,7 +53,10 @@ async def update_provider(user: User, body: ProviderProfileUpdate) -> ProviderPr
     if not profile:
         profile = ProviderProfile(user_id=str(user.id))
     data = body.model_dump(exclude_none=True)
+    if "location" in data:
+        data["location"] = Location(**data["location"])
     for key, value in data.items():
         setattr(profile, key, value)
+    profile.updated_at = datetime.now(timezone.utc)
     await profile.save()
     return profile

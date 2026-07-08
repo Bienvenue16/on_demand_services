@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/services.dart';
 
+import '../../../../core/location/location_service.dart';
 import '../../domain/entities/category.dart';
 import '../../domain/repositories/requests_repository.dart';
 import '../bloc/request_create_bloc.dart';
@@ -23,13 +24,41 @@ class _NewRequestPageState extends State<NewRequestPage> {
   final _descriptionController = TextEditingController();
   final _addressController = TextEditingController();
   final _imagePicker = ImagePicker();
+  final _locationService = const LocationService();
 
   String? _selectedCategoryId;
   String _urgency = 'medium';
   bool _loadingCategories = true;
   bool _uploadingPhotos = false;
+  bool _capturingLocation = false;
+  double? _capturedLat;
+  double? _capturedLng;
   List<Category> _categories = const [];
   List<XFile> _pickedPhotos = const [];
+
+  Future<void> _useCurrentLocation() async {
+    setState(() => _capturingLocation = true);
+    try {
+      final result = await _locationService.getCurrentLocation();
+      if (!mounted) return;
+      setState(() {
+        _capturedLat = result.latitude;
+        _capturedLng = result.longitude;
+        _addressController.text = (result.address != null && result.address!.isNotEmpty)
+            ? result.address!
+            : '${result.latitude.toStringAsFixed(5)}, ${result.longitude.toStringAsFixed(5)}';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _capturingLocation = false);
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -161,8 +190,39 @@ class _NewRequestPageState extends State<NewRequestPage> {
                     const SizedBox(height: 16),
                     TextFormField(
                       controller: _addressController,
-                      decoration: const InputDecoration(
+                      onChanged: (_) {
+                        if (_capturedLat != null || _capturedLng != null) {
+                          setState(() {
+                            _capturedLat = null;
+                            _capturedLng = null;
+                          });
+                        }
+                      },
+                      decoration: InputDecoration(
                         labelText: 'Adresse (optionnel)',
+                        suffixIcon: _capturedLat != null
+                            ? Tooltip(
+                                message: 'Position GPS capturee',
+                                child: Icon(
+                                  Icons.my_location,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                              )
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: (isBusy || _capturingLocation) ? null : _useCurrentLocation,
+                      icon: _capturingLocation
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.location_searching),
+                      label: Text(
+                        _capturingLocation ? 'Localisation...' : 'Utiliser ma position',
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -293,6 +353,8 @@ class _NewRequestPageState extends State<NewRequestPage> {
                                         locationAddress: _addressController.text.trim().isEmpty
                                             ? null
                                             : _addressController.text.trim(),
+                                        locationLat: _capturedLat,
+                                        locationLng: _capturedLng,
                                         photos: uploadedPhotoUrls,
                                       ),
                                     );

@@ -12,6 +12,10 @@ class MessagesBloc extends Bloc<MessagesEvent, MessagesState> {
     on<MessagesStarted>(_onStarted);
     on<MessagesConversationOpened>(_onConversationOpened);
     on<MessagesSendRequested>(_onSendRequested);
+    on<MessagesImageSendRequested>(_onImageSendRequested);
+    on<MessagesTypingRequested>(_onTypingRequested);
+    on<MessagesTypingReceived>(_onTypingReceived);
+    on<MessagesReadReceiptReceived>(_onReadReceiptReceived);
     on<MessagesSocketReceived>(_onSocketReceived);
     on<MessagesConnectionChanged>(_onConnectionChanged);
     on<MessagesReconnectRequested>(_onReconnectRequested);
@@ -20,6 +24,9 @@ class MessagesBloc extends Bloc<MessagesEvent, MessagesState> {
   final MessagesRepository _messagesRepository;
   StreamSubscription<ChatMessage>? _roomSubscription;
   StreamSubscription<bool>? _connectionSubscription;
+  StreamSubscription<TypingEvent>? _typingSubscription;
+  StreamSubscription<String>? _readSubscription;
+  Timer? _typingTimeoutTimer;
 
   Future<void> _onStarted(
     MessagesStarted event,
@@ -80,6 +87,7 @@ class MessagesBloc extends Bloc<MessagesEvent, MessagesState> {
           status: MessagesStatus.success,
           activeRoomId: event.roomId,
           messagesByRoom: updated,
+          isOtherTyping: false,
         ),
       );
 
@@ -92,6 +100,7 @@ class MessagesBloc extends Bloc<MessagesEvent, MessagesState> {
             incoming.senderId,
             incoming.content,
             incoming.createdAt,
+            mediaUrl: incoming.mediaUrl,
           ),
         );
       });
@@ -99,6 +108,16 @@ class MessagesBloc extends Bloc<MessagesEvent, MessagesState> {
       await _connectionSubscription?.cancel();
       _connectionSubscription = _messagesRepository.connectionStatus.listen((isConnected) {
         add(MessagesConnectionChanged(isConnected));
+      });
+
+      await _typingSubscription?.cancel();
+      _typingSubscription = _messagesRepository.typingEvents.listen((typing) {
+        add(MessagesTypingReceived(typing.senderId, typing.isTyping));
+      });
+
+      await _readSubscription?.cancel();
+      _readSubscription = _messagesRepository.readEvents.listen((readerId) {
+        add(MessagesReadReceiptReceived(readerId));
       });
     } catch (e) {
       emit(
@@ -115,19 +134,12 @@ class MessagesBloc extends Bloc<MessagesEvent, MessagesState> {
     Emitter<MessagesState> emit,
   ) async {
     try {
-      await _messagesRepository.sendMessage(
+      unawaited(_messagesRepository.sendTyping(event.roomId, false));
+      final sent = await _messagesRepository.sendMessage(
         roomId: event.roomId,
         content: event.content,
       );
-
-      final optimistic = ChatMessage(
-        id: 'temp-${DateTime.now().microsecondsSinceEpoch}',
-        roomId: event.roomId,
-        senderId: state.currentUserId ?? 'me',
-        content: event.content,
-        createdAt: DateTime.now(),
-      );
-      _appendMessage(optimistic, emit);
+      _appendMessage(sent, emit);
     } catch (e) {
       emit(
         state.copyWith(
@@ -136,6 +148,93 @@ class MessagesBloc extends Bloc<MessagesEvent, MessagesState> {
         ),
       );
     }
+  }
+
+  Future<void> _onImageSendRequested(
+    MessagesImageSendRequested event,
+    Emitter<MessagesState> emit,
+  ) async {
+    try {
+      final mediaUrl = await _messagesRepository.uploadChatImage(event.filePath);
+      if (mediaUrl == null || mediaUrl.isEmpty) {
+        emit(
+          state.copyWith(
+            status: MessagesStatus.failure,
+            errorMessage: 'Echec de l\'envoi de l\'image',
+          ),
+        );
+        return;
+      }
+
+      final sent = await _messagesRepository.sendMessage(
+        roomId: event.roomId,
+        content: '',
+        mediaUrl: mediaUrl,
+      );
+      _appendMessage(sent, emit);
+    } catch (e) {
+      emit(
+        state.copyWith(
+          status: MessagesStatus.failure,
+          errorMessage: e.toString(),
+        ),
+      );
+    }
+  }
+
+  Future<void> _onTypingRequested(
+    MessagesTypingRequested event,
+    Emitter<MessagesState> emit,
+  ) async {
+    final roomId = state.activeRoomId;
+    if (roomId == null) return;
+    await _messagesRepository.sendTyping(roomId, event.isTyping);
+  }
+
+  Future<void> _onTypingReceived(
+    MessagesTypingReceived event,
+    Emitter<MessagesState> emit,
+  ) async {
+    if (event.senderId.isEmpty || event.senderId == state.currentUserId) {
+      return;
+    }
+
+    _typingTimeoutTimer?.cancel();
+    emit(state.copyWith(isOtherTyping: event.isTyping));
+
+    if (event.isTyping) {
+      _typingTimeoutTimer = Timer(const Duration(seconds: 4), () {
+        add(MessagesTypingReceived(event.senderId, false));
+      });
+    }
+  }
+
+  Future<void> _onReadReceiptReceived(
+    MessagesReadReceiptReceived event,
+    Emitter<MessagesState> emit,
+  ) async {
+    final roomId = state.activeRoomId;
+    if (roomId == null || event.readerId.isEmpty || event.readerId == state.currentUserId) {
+      return;
+    }
+
+    final current = state.messagesByRoom[roomId];
+    if (current == null || current.isEmpty) return;
+
+    final hasOwnUnread = current.any(
+      (m) => m.senderId == state.currentUserId && !m.isRead,
+    );
+    if (!hasOwnUnread) return;
+
+    final updatedMessages = current
+        .map(
+          (m) => m.senderId == state.currentUserId ? m.copyWith(isRead: true) : m,
+        )
+        .toList();
+
+    final updated = Map<String, List<ChatMessage>>.from(state.messagesByRoom);
+    updated[roomId] = updatedMessages;
+    emit(state.copyWith(messagesByRoom: updated));
   }
 
   Future<void> _onSocketReceived(
@@ -148,8 +247,13 @@ class MessagesBloc extends Bloc<MessagesEvent, MessagesState> {
       senderId: event.senderId,
       content: event.content,
       createdAt: event.createdAt,
+      mediaUrl: event.mediaUrl,
     );
     _appendMessage(message, emit);
+
+    if (event.roomId == state.activeRoomId && event.senderId != state.currentUserId) {
+      unawaited(_messagesRepository.markAsRead(event.roomId));
+    }
   }
 
   Future<void> _onConnectionChanged(
@@ -191,8 +295,11 @@ class MessagesBloc extends Bloc<MessagesEvent, MessagesState> {
 
   @override
   Future<void> close() async {
+    _typingTimeoutTimer?.cancel();
     await _roomSubscription?.cancel();
     await _connectionSubscription?.cancel();
+    await _typingSubscription?.cancel();
+    await _readSubscription?.cancel();
     await _messagesRepository.disconnectRoom();
     return super.close();
   }

@@ -12,6 +12,8 @@ import '../features/auth/presentation/bloc/auth_bloc.dart';
 import '../features/auth/presentation/bloc/auth_event.dart';
 import '../features/notifications/data/repositories/notifications_repository_impl.dart';
 import '../features/notifications/domain/repositories/notifications_repository.dart';
+import '../features/provider_profile/data/repositories/provider_profile_repository_impl.dart';
+import '../features/provider_profile/domain/repositories/provider_profile_repository.dart';
 import '../features/requests/data/repositories/requests_repository_impl.dart';
 import '../features/requests/domain/repositories/requests_repository.dart';
 import '../features/requests/presentation/bloc/requests_bloc.dart';
@@ -32,6 +34,7 @@ class _ServiceMatchAppState extends State<ServiceMatchApp> {
   late final RequestsRepositoryImpl _requestsRepository;
   late final NotificationsRepositoryImpl _notificationsRepository;
   late final MessagesRepositoryImpl _messagesRepository;
+  late final ProviderProfileRepositoryImpl _providerProfileRepository;
   late final AuthBloc _authBloc;
   late final RequestsBloc _requestsBloc;
   late final router = AppRouter.create(_authBloc);
@@ -45,6 +48,7 @@ class _ServiceMatchAppState extends State<ServiceMatchApp> {
     _requestsRepository = RequestsRepositoryImpl(_apiClient);
     _notificationsRepository = NotificationsRepositoryImpl(_apiClient);
     _messagesRepository = MessagesRepositoryImpl(_apiClient);
+    _providerProfileRepository = ProviderProfileRepositoryImpl(_apiClient);
     _authBloc = AuthBloc(_authRepository)..add(const AuthAppStarted());
     _requestsBloc = RequestsBloc(_requestsRepository);
   }
@@ -65,6 +69,7 @@ class _ServiceMatchAppState extends State<ServiceMatchApp> {
         RepositoryProvider<RequestsRepository>.value(value: _requestsRepository),
         RepositoryProvider<NotificationsRepository>.value(value: _notificationsRepository),
         RepositoryProvider<MessagesRepository>.value(value: _messagesRepository),
+        RepositoryProvider<ProviderProfileRepository>.value(value: _providerProfileRepository),
       ],
       child: MultiBlocProvider(
         providers: [
@@ -75,6 +80,8 @@ class _ServiceMatchAppState extends State<ServiceMatchApp> {
           title: 'Service Matchmaking',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.light(),
+          darkTheme: AppTheme.dark(),
+          themeMode: ThemeMode.system,
           routerConfig: router,
         ),
       ),

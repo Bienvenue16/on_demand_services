@@ -98,6 +98,8 @@ class RequestsRepositoryImpl implements RequestsRepository {
     required String description,
     required String urgency,
     String? locationAddress,
+    double? locationLat,
+    double? locationLng,
     List<String> photos = const [],
   }) async {
     final payload = <String, dynamic>{
@@ -108,11 +110,14 @@ class RequestsRepositoryImpl implements RequestsRepository {
       'photos': photos,
     };
 
-    if (locationAddress != null && locationAddress.trim().isNotEmpty) {
+    // Le backend exige des coordonnees reelles si on envoie un lieu : on n'envoie
+    // 'location' que si une position GPS a effectivement ete capturee.
+    if (locationLat != null && locationLng != null) {
       payload['location'] = {
-        'lat': 12.3714,
-        'lng': -1.5197,
-        'address': locationAddress.trim(),
+        'lat': locationLat,
+        'lng': locationLng,
+        if (locationAddress != null && locationAddress.trim().isNotEmpty)
+          'address': locationAddress.trim(),
       };
     }
 
@@ -238,6 +243,8 @@ class RequestsRepositoryImpl implements RequestsRepository {
     String? fallbackId,
   }) {
     final clientId = _extractClientId(item);
+    final location = item['location'];
+    final locationMap = location is Map<dynamic, dynamic> ? location : null;
     return ServiceRequest(
       id: (item['id'] ?? item['_id'] ?? fallbackId ?? '').toString(),
       categoryId: (item['category_id'] ?? '').toString(),
@@ -249,7 +256,10 @@ class RequestsRepositoryImpl implements RequestsRepository {
       clientName: _extractClientName(item),
       clientAvatarUrl: _extractClientAvatarUrl(item),
       locationAddress: _extractLocationAddress(item),
+      locationLat: _toDoubleOrNull(locationMap?['lat']),
+      locationLng: _toDoubleOrNull(locationMap?['lng']),
       photos: _extractPhotos(item),
+      proposalsCount: int.tryParse((item['proposals_count'] ?? 0).toString()) ?? 0,
       createdAt: DateTime.tryParse((item['created_at'] ?? '').toString()),
     );
   }

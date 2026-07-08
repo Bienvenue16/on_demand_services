@@ -1,7 +1,9 @@
 from fastapi import HTTPException, status
+from fastapi.encoders import jsonable_encoder
 from datetime import datetime, timezone
 from typing import Optional
 from app.models.service_request import ServiceRequest
+from app.models.proposal import Proposal
 from app.models.user import User
 from app.schemas.service_request import ServiceRequestCreate, ServiceRequestUpdate, StatusUpdate
 from app.schemas.common import MessageResponse
@@ -22,7 +24,27 @@ async def list_requests(page: int = 1, limit: int = 20, category_id: Optional[st
     if req_status:
         filters.append(ServiceRequest.status == req_status)
     query = ServiceRequest.find(*filters).sort(-ServiceRequest.created_at)
-    return await paginate(query, page, limit)
+    result = await paginate(query, page, limit)
+
+    request_ids = [str(r.id) for r in result["data"]]
+    counts = await _count_proposals_by_request(request_ids)
+    result["data"] = [
+        {**jsonable_encoder(r), "proposals_count": counts.get(str(r.id), 0)}
+        for r in result["data"]
+    ]
+    return result
+
+
+async def _count_proposals_by_request(request_ids: list[str]) -> dict[str, int]:
+    """Compte les propositions par demande en une seule requete d'agregation."""
+    if not request_ids:
+        return {}
+    pipeline = [
+        {"$match": {"request_id": {"$in": request_ids}}},
+        {"$group": {"_id": "$request_id", "count": {"$sum": 1}}},
+    ]
+    rows = await Proposal.get_motor_collection().aggregate(pipeline).to_list(length=None)
+    return {row["_id"]: row["count"] for row in rows}
 
 
 async def get_nearby(user_lat: float, user_lng: float, radius_km: float = 20.0) -> list:

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../../core/widgets/app_bottom_nav.dart';
+import '../../../../core/widgets/gradient_header.dart';
 import '../../domain/entities/app_notification.dart';
 import '../../domain/repositories/notifications_repository.dart';
 import '../bloc/notifications_bloc.dart';
@@ -66,47 +67,21 @@ class NotificationsPage extends StatelessWidget {
               return CustomScrollView(
                 slivers: [
                   SliverToBoxAdapter(
-                    child: Container(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Theme.of(context).colorScheme.secondaryContainer,
-                            Theme.of(context).colorScheme.surface,
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          IconButton(
-                            onPressed: () => context.pop(),
-                            icon: const Icon(Icons.arrow_back),
+                    child: GradientHeader(
+                      title: 'Notifications',
+                      subtitle: '${state.unreadCount} non lues',
+                      onBack: () => context.pop(),
+                      actions: [
+                        if (state.unreadCount > 0)
+                          FilledButton.tonal(
+                            onPressed: () {
+                              context.read<NotificationsBloc>().add(
+                                    const NotificationsMarkAllRead(),
+                                  );
+                            },
+                            child: const Text('Tout lire'),
                           ),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Notifications',
-                                  style: Theme.of(context).textTheme.headlineSmall,
-                                ),
-                                Text('${state.unreadCount} non lues'),
-                              ],
-                            ),
-                          ),
-                          if (state.unreadCount > 0)
-                            FilledButton.tonal(
-                              onPressed: () {
-                                context.read<NotificationsBloc>().add(
-                                      const NotificationsMarkAllRead(),
-                                    );
-                              },
-                              child: const Text('Tout lire'),
-                            ),
-                        ],
-                      ),
+                      ],
                     ),
                   ),
                   if (state.status == NotificationsStatus.loading ||

@@ -12,7 +12,10 @@ class ServiceRequest extends Equatable {
     this.clientName,
     this.clientAvatarUrl,
     this.locationAddress,
+    this.locationLat,
+    this.locationLng,
     this.photos = const [],
+    this.proposalsCount = 0,
     this.createdAt,
   });
 
@@ -26,8 +29,13 @@ class ServiceRequest extends Equatable {
   final String? clientName;
   final String? clientAvatarUrl;
   final String? locationAddress;
+  final double? locationLat;
+  final double? locationLng;
   final List<String> photos;
+  final int proposalsCount;
   final DateTime? createdAt;
+
+  bool get hasLocation => locationLat != null && locationLng != null;
 
   ServiceRequest copyWith({
     String? id,
@@ -40,7 +48,10 @@ class ServiceRequest extends Equatable {
     String? clientName,
     String? clientAvatarUrl,
     String? locationAddress,
+    double? locationLat,
+    double? locationLng,
     List<String>? photos,
+    int? proposalsCount,
     DateTime? createdAt,
   }) {
     return ServiceRequest(
@@ -54,7 +65,10 @@ class ServiceRequest extends Equatable {
       clientName: clientName ?? this.clientName,
       clientAvatarUrl: clientAvatarUrl ?? this.clientAvatarUrl,
       locationAddress: locationAddress ?? this.locationAddress,
+      locationLat: locationLat ?? this.locationLat,
+      locationLng: locationLng ?? this.locationLng,
       photos: photos ?? this.photos,
+      proposalsCount: proposalsCount ?? this.proposalsCount,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -71,7 +85,10 @@ class ServiceRequest extends Equatable {
         clientName,
         clientAvatarUrl,
         locationAddress,
+        locationLat,
+        locationLng,
         photos,
+        proposalsCount,
         createdAt,
       ];
 }

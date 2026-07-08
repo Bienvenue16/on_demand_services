@@ -14,6 +14,8 @@ final class RequestCreateSubmitted extends RequestCreateEvent {
     required this.description,
     required this.urgency,
     this.locationAddress,
+    this.locationLat,
+    this.locationLng,
     this.photos = const [],
   });
 
@@ -22,6 +24,8 @@ final class RequestCreateSubmitted extends RequestCreateEvent {
   final String description;
   final String urgency;
   final String? locationAddress;
+  final double? locationLat;
+  final double? locationLng;
   final List<String> photos;
 
   @override
@@ -31,6 +35,8 @@ final class RequestCreateSubmitted extends RequestCreateEvent {
         description,
         urgency,
         locationAddress,
+        locationLat,
+        locationLng,
         photos,
       ];
 }

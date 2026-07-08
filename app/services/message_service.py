@@ -9,6 +9,7 @@ from app.schemas.message import (
 )
 from app.utils.helpers import parse_room_id
 from app.utils.pagination import paginate
+from app.websocket.manager import manager
 
 
 async def get_conversations(user: User) -> list[ConversationOut]:
@@ -110,6 +111,19 @@ async def send(room_id: str, body: MessageSend, user: User) -> Message:
         participants=participants,
     )
     await msg.insert()
+
+    # Diffuse en temps reel aux clients connectes sur ce salon (ex: envoi via REST
+    # pendant que l'autre participant est connecte en WebSocket).
+    await manager.send_to_room(room_id, {
+        "type": "text",
+        "content": msg.content,
+        "media_url": msg.media_url,
+        "room_id": room_id,
+        "sender_id": str(user.id),
+        "message_id": str(msg.id),
+        "timestamp": msg.created_at.isoformat(),
+    })
+
     return msg
 
 
@@ -119,6 +133,14 @@ async def mark_read(room_id: str, user: User) -> dict:
         Message.sender_id != str(user.id),
         Message.is_read == False,
     ).update({"$set": {"is_read": True}})
+
+    # Notifie en temps reel l'autre participant que ses messages ont ete lus (accuse de lecture).
+    await manager.send_to_room(room_id, {
+        "type": "read",
+        "room_id": room_id,
+        "reader_id": str(user.id),
+    })
+
     return {"message": "Messages marqués comme lus"}
 
 
