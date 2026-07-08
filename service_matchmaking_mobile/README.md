@@ -59,7 +59,20 @@ Exemple:
 flutter run --dart-define=API_BASE_URL=https://votre-api.exemple.com
 ```
 
-Note: si aucune valeur n'est fournie, une valeur par defaut est utilisee dans le code.
+Note: si aucune valeur n'est fournie, le code utilise par defaut un tunnel ngrok personnel
+(`lib/core/constants/api_constants.dart`), pratique pour les demos mais ephemere (l'URL change
+a chaque redemarrage du tunnel). Ne pas s'y fier pour un usage durable: toujours passer
+`--dart-define=API_BASE_URL=...` explicitement en dehors des demos ponctuelles.
+
+Valeurs courantes selon l'environnement:
+
+| Environnement | `API_BASE_URL` |
+|---|---|
+| Emulateur Android (API tournant en local sur la meme machine) | `http://10.0.2.2:8000` |
+| Simulateur iOS / Flutter web (API en local) | `http://localhost:8000` |
+| Appareil physique sur le meme reseau Wi-Fi | `http://<IP-LAN-de-la-machine>:8000` |
+| Appareil physique via tunnel (ngrok, etc.) | URL publique du tunnel |
+| API deployee | URL du serveur de production |
 
 ## Lancer le projet
 

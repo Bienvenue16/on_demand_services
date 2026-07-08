@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/services.dart';
 
+import '../../../../core/theme/theme_cubit.dart';
 import '../../../../core/widgets/app_bottom_nav.dart';
 import '../../domain/repositories/auth_repository.dart';
 import '../bloc/auth_bloc.dart';
@@ -206,6 +207,48 @@ class _ProfilePageState extends State<ProfilePage> {
                             ],
                           ),
                         ],
+                      ),
+                    ),
+                  ),
+                  if (user.isProvider)
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                      sliver: SliverToBoxAdapter(
+                        child: Card(
+                          child: ListTile(
+                            leading: const Icon(Icons.work_outline),
+                            title: const Text('Profil prestataire'),
+                            subtitle: const Text(
+                              'Bio, competences, zone d\'intervention, portfolio...',
+                            ),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () => context.push('/provider/profile'),
+                          ),
+                        ),
+                      ),
+                    ),
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                    sliver: SliverToBoxAdapter(
+                      child: Card(
+                        child: BlocBuilder<ThemeCubit, ThemeMode>(
+                          builder: (context, themeMode) {
+                            final autoThemeEnabled = themeMode == ThemeMode.system;
+                            return SwitchListTile(
+                              secondary: const Icon(Icons.brightness_6_outlined),
+                              title: const Text('Theme automatique'),
+                              subtitle: Text(
+                                autoThemeEnabled
+                                    ? 'Suit le mode clair/sombre du telephone'
+                                    : 'Mode sombre force (desactive)',
+                              ),
+                              value: autoThemeEnabled,
+                              onChanged: (value) {
+                                context.read<ThemeCubit>().setAutoThemeEnabled(value);
+                              },
+                            );
+                          },
+                        ),
                       ),
                     ),
                   ),

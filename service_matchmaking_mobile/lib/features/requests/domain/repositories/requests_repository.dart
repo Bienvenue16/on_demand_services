@@ -21,6 +21,8 @@ abstract class RequestsRepository {
     required String description,
     required String urgency,
     String? locationAddress,
+    double? locationLat,
+    double? locationLng,
     List<String> photos = const [],
   });
   Future<String?> uploadRequestImage(String filePath);
@@ -32,6 +34,7 @@ abstract class RequestsRepository {
   });
   Future<String?> acceptProposal(String proposalId);
   Future<void> declineProposal(String proposalId);
+  Future<void> deleteProposal(String proposalId);
   Future<List<Proposal>> getMyProposals();
   Future<void> updateRequestStatus({
     required String requestId,

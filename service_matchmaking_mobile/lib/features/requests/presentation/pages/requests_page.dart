@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 
+import '../../../../app/app_semantic_colors.dart';
+import '../../../../core/location/location_service.dart';
+import '../../../../core/utils/geo_utils.dart';
+import '../../../../core/utils/time_ago.dart';
 import '../../../../core/widgets/app_bottom_nav.dart';
+import '../../../../core/widgets/brand_header.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
-import '../../../auth/presentation/bloc/auth_event.dart';
-import '../../../messages/domain/repositories/messages_repository.dart';
 import '../../domain/entities/category.dart';
 import '../../domain/entities/service_request.dart';
 import '../../domain/repositories/requests_repository.dart';
@@ -22,6 +24,12 @@ class RequestsPage extends StatefulWidget {
 }
 
 class _RequestsPageState extends State<RequestsPage> {
+  final _searchController = TextEditingController();
+  final _locationService = const LocationService();
+  String _searchQuery = '';
+  double? _myLat;
+  double? _myLng;
+
   Future<void> _openQuickProposalSheet(ServiceRequest request) async {
     final submitted = await showModalBottomSheet<bool>(
       context: context,
@@ -51,6 +59,40 @@ class _RequestsPageState extends State<RequestsPage> {
   void initState() {
     super.initState();
     context.read<RequestsBloc>().add(const RequestsStarted());
+    _searchController.addListener(() {
+      setState(() => _searchQuery = _searchController.text.trim().toLowerCase());
+    });
+    _tryCaptureMyLocation();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _tryCaptureMyLocation() async {
+    try {
+      final result = await _locationService.getCurrentLocation();
+      if (!mounted) return;
+      setState(() {
+        _myLat = result.latitude;
+        _myLng = result.longitude;
+      });
+    } catch (_) {
+      // La distance est un bonus : sans position dispo, on l'omet simplement.
+    }
+  }
+
+  List<ServiceRequest> _applySearch(List<ServiceRequest> requests) {
+    if (_searchQuery.isEmpty) return requests;
+    return requests
+        .where(
+          (r) =>
+              r.title.toLowerCase().contains(_searchQuery) ||
+              r.description.toLowerCase().contains(_searchQuery),
+        )
+        .toList();
   }
 
   @override
@@ -58,227 +100,384 @@ class _RequestsPageState extends State<RequestsPage> {
     final currentUser = context.watch<AuthBloc>().state.user;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Demandes ouvertes'),
-        actions: [
-          IconButton(
-            tooltip: 'Messages',
-            onPressed: () => context.push('/messages'),
-            icon: const Icon(Icons.chat_bubble_outline),
-          ),
-          IconButton(
-            tooltip: 'Notifications',
-            onPressed: () => context.push('/notifications'),
-            icon: const Icon(Icons.notifications_outlined),
-          ),
-          IconButton(
-            tooltip: 'Profil',
-            onPressed: () => context.push('/profile'),
-            icon: const Icon(Icons.person_outline),
-          ),
-          IconButton(
-            tooltip: 'Mes demandes',
-            onPressed: () => context.push('/my-requests'),
-            icon: const Icon(Icons.list_alt),
-          ),
-          if (currentUser?.isProvider == true)
-            IconButton(
-              tooltip: 'Mes offres',
-              onPressed: () => context.push('/provider/proposals'),
-              icon: const Icon(Icons.work_outline),
-            ),
-          IconButton(
-            tooltip: 'Rafraichir',
-            onPressed: () {
-              context.read<RequestsBloc>().add(const RequestsRefreshed());
-            },
-            icon: const Icon(Icons.refresh),
-          ),
-          IconButton(
-            tooltip: 'Deconnexion',
-            onPressed: () {
-              context.read<AuthBloc>().add(const AuthLogoutRequested());
-            },
-            icon: const Icon(Icons.logout),
-          ),
-        ],
-      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => context.push('/requests/new'),
         icon: const Icon(Icons.add),
         label: const Text('Publier'),
       ),
       bottomNavigationBar: const AppBottomNav(currentLocation: '/requests'),
-      body: BlocBuilder<RequestsBloc, RequestsState>(
-        builder: (context, state) {
-          if (state.status == RequestsStatus.loading) {
-            return const Center(child: CircularProgressIndicator());
-          }
+      body: SafeArea(
+        child: BlocBuilder<RequestsBloc, RequestsState>(
+          builder: (context, state) {
+            final categoriesById = <String, Category>{
+              for (final category in state.categories) category.id: category,
+            };
+            final visibleRequests = _applySearch(state.requests);
 
-          if (state.status == RequestsStatus.failure) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.error_outline, size: 48),
-                    const SizedBox(height: 12),
-                    Text(state.errorMessage ?? 'Erreur inconnue'),
-                    const SizedBox(height: 12),
-                    FilledButton(
-                      onPressed: () {
-                        context.read<RequestsBloc>().add(const RequestsRefreshed());
-                      },
-                      child: const Text('Reessayer'),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }
-
-          return RefreshIndicator(
-            onRefresh: () async {
-              context.read<RequestsBloc>().add(const RequestsRefreshed());
-            },
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Text(
-                  'Filtrer par categorie',
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-                const SizedBox(height: 8),
-                _CategoryFilter(
-                  categories: state.categories,
-                  selectedCategoryId: state.selectedCategoryId,
-                  onChanged: (categoryId) {
-                    context
-                        .read<RequestsBloc>()
-                        .add(RequestsCategoryChanged(categoryId));
-                  },
-                ),
-                const SizedBox(height: 16),
-                if (state.requests.isEmpty)
-                  const _EmptyState()
-                else
-                  ...state.requests.map(
-                    (request) {
-                      final canInteractAsProvider =
-                          currentUser?.isProvider == true && currentUser?.id != request.clientId;
-                      return Card(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      elevation: 1.5,
-                      clipBehavior: Clip.antiAlias,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(20),
+            return RefreshIndicator(
+              onRefresh: () async {
+                context.read<RequestsBloc>().add(const RequestsRefreshed());
+              },
+              child: CustomScrollView(
+                slivers: [
+                  const SliverToBoxAdapter(child: _RequestsHero()),
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                    sliver: SliverToBoxAdapter(
+                      child: _SearchField(
+                        controller: _searchController,
+                        hintText: 'Rechercher un service...',
                       ),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(20),
-                        onTap: () => context.push('/requests/${request.id}'),
+                    ),
+                  ),
+                  if (state.status == RequestsStatus.loading)
+                    const SliverFillRemaining(
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (state.status == RequestsStatus.failure)
+                    SliverFillRemaining(
+                      child: Center(
                         child: Padding(
-                          padding: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.all(20),
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              _PostAuthorHeader(
-                                authorName: request.clientName ?? 'Client',
-                                authorAvatarUrl: request.clientAvatarUrl,
-                                createdAt: request.createdAt,
-                              ),
+                              const Icon(Icons.error_outline, size: 48),
                               const SizedBox(height: 12),
-                              if (request.photos.isNotEmpty) ...[
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(14),
-                                  child: AspectRatio(
-                                    aspectRatio: 16 / 9,
-                                    child: Image.network(
-                                      request.photos.first,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => Container(
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .surfaceContainerHighest,
-                                        alignment: Alignment.center,
-                                        child: const Icon(Icons.broken_image_outlined),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                              ],
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      request.title,
-                                      style:
-                                          Theme.of(context).textTheme.titleMedium,
-                                    ),
-                                  ),
-                                  Chip(
-                                    avatar: const Icon(Icons.bolt, size: 14),
-                                    label: Text(request.urgency.toUpperCase()),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                request.description,
-                                maxLines: 3,
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                              Text(state.errorMessage ?? 'Erreur inconnue'),
                               const SizedBox(height: 12),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  OutlinedButton.icon(
-                                    onPressed: () => context.push('/requests/${request.id}'),
-                                    icon: const Icon(Icons.visibility_outlined),
-                                    label: const Text('Voir'),
-                                  ),
-                                  if (canInteractAsProvider)
-                                    FilledButton.tonalIcon(
-                                      onPressed: () => _openQuickProposalSheet(request),
-                                      icon: const Icon(Icons.request_quote_outlined),
-                                      label: const Text('Proposer'),
-                                    ),
-                                  if (canInteractAsProvider)
-                                    TextButton.icon(
-                                      onPressed: () async {
-                                        final clientId = request.clientId;
-                                        if (clientId == null || clientId.isEmpty) return;
-                                        try {
-                                            final roomId = await context
-                                              .read<MessagesRepository>()
-                                              .startConversation(request.id, clientId);
-                                          if (!context.mounted) return;
-                                          context.push('/messages?roomId=$roomId');
-                                        } catch (e) {
-                                          if (!context.mounted) return;
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            SnackBar(content: Text(e.toString())),
-                                          );
-                                        }
-                                      },
-                                      icon: const Icon(Icons.chat_bubble_outline),
-                                      label: const Text('Contacter'),
-                                    ),
-                                ],
+                              FilledButton(
+                                onPressed: () {
+                                  context.read<RequestsBloc>().add(const RequestsRefreshed());
+                                },
+                                child: const Text('Reessayer'),
                               ),
                             ],
                           ),
                         ),
                       ),
-                    );
-                    },
+                    )
+                  else
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+                      sliver: SliverList.list(
+                        children: [
+                          _CategoryFilter(
+                            categories: state.categories,
+                            selectedCategoryId: state.selectedCategoryId,
+                            onChanged: (categoryId) {
+                              context
+                                  .read<RequestsBloc>()
+                                  .add(RequestsCategoryChanged(categoryId));
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          if (visibleRequests.isEmpty)
+                            const _EmptyState()
+                          else
+                            ...visibleRequests.map(
+                              (request) {
+                                final canInteractAsProvider =
+                                    currentUser?.isProvider == true &&
+                                        currentUser?.id != request.clientId;
+                                final category = categoriesById[request.categoryId];
+                                final distanceKm = (_myLat != null &&
+                                        _myLng != null &&
+                                        request.hasLocation)
+                                    ? haversineKm(
+                                        _myLat!,
+                                        _myLng!,
+                                        request.locationLat!,
+                                        request.locationLng!,
+                                      )
+                                    : null;
+
+                                return _RequestCard(
+                                  request: request,
+                                  category: category,
+                                  distanceKm: distanceKm,
+                                  canInteractAsProvider: canInteractAsProvider,
+                                  onTap: () => context.push('/requests/${request.id}'),
+                                  onPropose: () => _openQuickProposalSheet(request),
+                                );
+                              },
+                            ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _RequestsHero extends StatelessWidget {
+  const _RequestsHero();
+
+  @override
+  Widget build(BuildContext context) {
+    return const BrandHeader(
+      title: 'Demandes ouvertes',
+      accentSuffix: 'ouvertes',
+      subtitle: 'Explorez les besoins publies pres de chez vous',
+    );
+  }
+}
+
+/// Champ de recherche generique, place sur le fond de page (pas sur le
+/// degrade de marque) pour rester coherent quel que soit le theme.
+class _SearchField extends StatelessWidget {
+  const _SearchField({
+    required this.controller,
+    required this.hintText,
+  });
+
+  final TextEditingController controller;
+  final String hintText;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final fg = theme.colorScheme.onSurfaceVariant;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: theme.colorScheme.outline),
+      ),
+      child: TextField(
+        controller: controller,
+        style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 13.5),
+        decoration: InputDecoration(
+          filled: false,
+          hintText: hintText,
+          hintStyle: TextStyle(color: fg),
+          prefixIcon: Icon(Icons.search, color: fg, size: 20),
+          border: InputBorder.none,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(vertical: 13),
+        ),
+      ),
+    );
+  }
+}
+
+class _RequestCard extends StatelessWidget {
+  const _RequestCard({
+    required this.request,
+    required this.category,
+    required this.distanceKm,
+    required this.canInteractAsProvider,
+    required this.onTap,
+    required this.onPropose,
+  });
+
+  final ServiceRequest request;
+  final Category? category;
+  final double? distanceKm;
+  final bool canInteractAsProvider;
+  final VoidCallback onTap;
+  final VoidCallback onPropose;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final semantic = context.semanticColors;
+    final hasPhotos = request.photos.isNotEmpty;
+
+    final metaParts = <String>[
+      if (request.locationAddress != null && request.locationAddress!.trim().isNotEmpty)
+        request.locationAddress!.trim(),
+      timeAgo(request.createdAt ?? DateTime.now()),
+    ];
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 14),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _PostAuthorHeader(
+                authorName: request.clientName ?? 'Client',
+                authorAvatarUrl: request.clientAvatarUrl,
+                metaText: metaParts.join(' · '),
+              ),
+              if (hasPhotos) ...[
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: Stack(
+                    children: [
+                      AspectRatio(
+                        aspectRatio: 16 / 9,
+                        child: Image.network(
+                          request.photos.first,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: semantic.cardImageGradient,
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        top: 10,
+                        left: 10,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: semantic.imageTagBackground,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '\u{1F4F7} ${request.photos.length} photo${request.photos.length > 1 ? 's' : ''}',
+                            style: TextStyle(
+                              color: semantic.imageTagForeground,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
+                ),
               ],
-            ),
-          );
-        },
+              const SizedBox(height: 12),
+              if (category != null) ...[
+                Text(
+                  category!.label.toUpperCase(),
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: theme.colorScheme.secondary,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+                const SizedBox(height: 5),
+              ],
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      request.title,
+                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _UrgencyBadge(urgency: request.urgency),
+                ],
+              ),
+              const SizedBox(height: 7),
+              Text(
+                request.description,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 13, height: 1.4),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  if (distanceKm != null) ...[
+                    Icon(Icons.location_on_outlined, size: 14, color: semantic.metaText),
+                    const SizedBox(width: 4),
+                    Text(
+                      formatDistanceKm(distanceKm!),
+                      style: TextStyle(color: semantic.metaText, fontSize: 12),
+                    ),
+                    const SizedBox(width: 14),
+                  ],
+                  Icon(Icons.chat_bubble_outline, size: 14, color: semantic.metaText),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${request.proposalsCount} proposition${request.proposalsCount > 1 ? 's' : ''}',
+                    style: TextStyle(color: semantic.metaText, fontSize: 12),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 13),
+              Row(
+                children: [
+                  if (canInteractAsProvider) ...[
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: onPropose,
+                        child: const Text('Proposer mes services'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: onTap,
+                        child: const Text('Voir'),
+                      ),
+                    ),
+                  ] else
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: onTap,
+                        child: const Text('Voir'),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _UrgencyBadge extends StatelessWidget {
+  const _UrgencyBadge({required this.urgency});
+
+  final String urgency;
+
+  @override
+  Widget build(BuildContext context) {
+    final semantic = context.semanticColors;
+    final theme = Theme.of(context);
+    final isHigh = urgency == 'high';
+
+    final bg = isHigh ? semantic.urgentBackground : theme.colorScheme.surfaceContainerHighest;
+    final fg = isHigh ? semantic.urgentForeground : theme.colorScheme.onSurfaceVariant;
+    final border = isHigh ? semantic.urgentBorder : null;
+
+    final label = switch (urgency) {
+      'high' => 'URGENT',
+      'low' => 'FLEXIBLE',
+      _ => 'NORMAL',
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: border != null ? Border.all(color: border) : null,
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: fg,
+          fontSize: 10.5,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.3,
+        ),
       ),
     );
   }
@@ -434,7 +633,7 @@ class _CategoryFilter extends StatelessWidget {
             (category) => Padding(
               padding: const EdgeInsets.only(right: 8),
               child: ChoiceChip(
-                label: Text(category.name),
+                label: Text(category.label),
                 selected: selectedCategoryId == category.id,
                 onSelected: (_) => onChanged(category.id),
               ),
@@ -449,13 +648,13 @@ class _CategoryFilter extends StatelessWidget {
 class _PostAuthorHeader extends StatelessWidget {
   const _PostAuthorHeader({
     required this.authorName,
+    required this.metaText,
     this.authorAvatarUrl,
-    this.createdAt,
   });
 
   final String authorName;
+  final String metaText;
   final String? authorAvatarUrl;
-  final DateTime? createdAt;
 
   String _initials(String value) {
     final parts = value
@@ -472,13 +671,16 @@ class _PostAuthorHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Row(
       children: [
         CircleAvatar(
           radius: 18,
+          backgroundColor: theme.colorScheme.primaryContainer,
+          foregroundColor: theme.colorScheme.onPrimaryContainer,
           foregroundImage: (authorAvatarUrl != null && authorAvatarUrl!.isNotEmpty)
-            ? NetworkImage(authorAvatarUrl!)
-            : null,
+              ? NetworkImage(authorAvatarUrl!)
+              : null,
           child: Text(_initials(authorName)),
         ),
         const SizedBox(width: 10),
@@ -488,13 +690,11 @@ class _PostAuthorHeader extends StatelessWidget {
             children: [
               Text(
                 authorName,
-                style: Theme.of(context).textTheme.titleSmall,
+                style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
               ),
               Text(
-                createdAt == null
-                    ? 'Date inconnue'
-                    : DateFormat('dd/MM/yyyy HH:mm').format(createdAt!),
-                style: Theme.of(context).textTheme.bodySmall,
+                metaText,
+                style: TextStyle(color: context.semanticColors.metaText, fontSize: 11.5),
               ),
             ],
           ),

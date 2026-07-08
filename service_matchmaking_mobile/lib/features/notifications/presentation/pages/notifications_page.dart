@@ -3,7 +3,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
+import '../../../../app/app_semantic_colors.dart';
 import '../../../../core/widgets/app_bottom_nav.dart';
+import '../../../../core/widgets/brand_header.dart';
 import '../../domain/entities/app_notification.dart';
 import '../../domain/repositories/notifications_repository.dart';
 import '../bloc/notifications_bloc.dart';
@@ -44,6 +46,38 @@ class NotificationsPage extends StatelessWidget {
     }
   }
 
+  Map<String, List<AppNotification>> _groupByRecency(List<AppNotification> items) {
+    final now = DateTime.now();
+    final todayKey = DateTime(now.year, now.month, now.day);
+    final weekAgo = todayKey.subtract(const Duration(days: 7));
+
+    final today = <AppNotification>[];
+    final week = <AppNotification>[];
+    final older = <AppNotification>[];
+
+    for (final notif in items) {
+      final created = notif.createdAt;
+      if (created == null) {
+        week.add(notif);
+        continue;
+      }
+      final day = DateTime(created.year, created.month, created.day);
+      if (day == todayKey) {
+        today.add(notif);
+      } else if (day.isAfter(weekAgo)) {
+        week.add(notif);
+      } else {
+        older.add(notif);
+      }
+    }
+
+    return {
+      if (today.isNotEmpty) 'Aujourd\'hui': today,
+      if (week.isNotEmpty) 'Cette semaine': week,
+      if (older.isNotEmpty) 'Plus ancien': older,
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
@@ -63,50 +97,29 @@ class NotificationsPage extends StatelessWidget {
               }
             },
             builder: (context, state) {
+              final theme = Theme.of(context);
+              final isDark = theme.brightness == Brightness.dark;
+              final goldAccent = isDark ? theme.colorScheme.primary : theme.colorScheme.tertiary;
+              final grouped = _groupByRecency(state.notifications);
+
               return CustomScrollView(
                 slivers: [
                   SliverToBoxAdapter(
-                    child: Container(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Theme.of(context).colorScheme.secondaryContainer,
-                            Theme.of(context).colorScheme.surface,
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          IconButton(
-                            onPressed: () => context.pop(),
-                            icon: const Icon(Icons.arrow_back),
-                          ),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Notifications',
-                                  style: Theme.of(context).textTheme.headlineSmall,
-                                ),
-                                Text('${state.unreadCount} non lues'),
-                              ],
-                            ),
-                          ),
-                          if (state.unreadCount > 0)
-                            FilledButton.tonal(
+                    child: BrandHeader(
+                      title: 'Notifications',
+                      subtitle: '${state.unreadCount} non lues',
+                      onBack: () => context.pop(),
+                      trailing: state.unreadCount > 0
+                          ? TextButton(
                               onPressed: () {
-                                context.read<NotificationsBloc>().add(
-                                      const NotificationsMarkAllRead(),
-                                    );
+                                context
+                                    .read<NotificationsBloc>()
+                                    .add(const NotificationsMarkAllRead());
                               },
-                              child: const Text('Tout lire'),
-                            ),
-                        ],
-                      ),
+                              style: TextButton.styleFrom(foregroundColor: goldAccent),
+                              child: const Text('Tout marquer lu'),
+                            )
+                          : null,
                     ),
                   ),
                   if (state.status == NotificationsStatus.loading ||
@@ -119,76 +132,33 @@ class NotificationsPage extends StatelessWidget {
                       child: Center(child: Text('Aucune notification')),
                     )
                   else
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                      sliver: SliverList.builder(
-                        itemCount: state.notifications.length,
-                        itemBuilder: (context, index) {
-                          final notif = state.notifications[index];
-                          final bloc = context.read<NotificationsBloc>();
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            color: notif.isRead
-                                ? null
-                                : Theme.of(context)
-                                    .colorScheme
-                                    .primaryContainer
-                                    .withValues(alpha: 0.35),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(16),
-                              onTap: () {
-                                _handleNotificationTap(context, bloc, notif);
-                              },
-                              child: Padding(
-                                padding: const EdgeInsets.all(14),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    _TypeAvatar(type: notif.type),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                            children: [
-                                              Expanded(
-                                                child: Text(
-                                                  notif.title,
-                                                  style: Theme.of(context)
-                                                      .textTheme
-                                                      .titleSmall,
-                                                ),
-                                              ),
-                                              if (!notif.isRead)
-                                                const Icon(
-                                                  Icons.fiber_manual_record,
-                                                  size: 10,
-                                                ),
-                                            ],
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(notif.body),
-                                          const SizedBox(height: 8),
-                                          Text(
-                                            notif.createdAt == null
-                                                ? ''
-                                                : DateFormat('dd/MM HH:mm')
-                                                    .format(notif.createdAt!),
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .bodySmall,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                    SliverList.list(
+                      children: [
+                        for (final entry in grouped.entries) ...[
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
+                            child: Text(
+                              entry.key.toUpperCase(),
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: context.semanticColors.metaText,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.6,
                               ),
                             ),
-                          );
-                        },
-                      ),
+                          ),
+                          ...entry.value.map(
+                            (notif) => _NotificationRow(
+                              notif: notif,
+                              onTap: () => _handleNotificationTap(
+                                context,
+                                context.read<NotificationsBloc>(),
+                                notif,
+                              ),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 12),
+                      ],
                     ),
                 ],
               );
@@ -200,27 +170,143 @@ class NotificationsPage extends StatelessWidget {
   }
 }
 
-class _TypeAvatar extends StatelessWidget {
-  const _TypeAvatar({required this.type});
+class _NotificationRow extends StatelessWidget {
+  const _NotificationRow({required this.notif, required this.onTap});
+
+  final AppNotification notif;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        color: notif.isRead ? null : theme.colorScheme.surface,
+        border: Border(bottom: BorderSide(color: theme.colorScheme.outlineVariant)),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _TypeTile(type: notif.type),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      notif.title,
+                      style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      notif.body,
+                      style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 12),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      notif.createdAt == null
+                          ? ''
+                          : DateFormat('dd/MM HH:mm').format(notif.createdAt!),
+                      style: TextStyle(
+                        color: context.semanticColors.metaText,
+                        fontSize: 10.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (!notif.isRead)
+                Padding(
+                  padding: const EdgeInsets.only(left: 8, top: 4),
+                  child: Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: theme.brightness == Brightness.dark
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.tertiary,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TypeTile extends StatelessWidget {
+  const _TypeTile({required this.type});
 
   final String type;
 
   @override
   Widget build(BuildContext context) {
-    IconData icon;
+    final theme = Theme.of(context);
+    final semantic = context.semanticColors;
+
+    final Color bg;
+    final Color fg;
+    final IconData icon;
+
     switch (type) {
+      case 'new_proposal':
+        bg = semantic.warnSoft;
+        fg = semantic.warn;
+        icon = Icons.work_outline;
+        break;
       case 'message':
+      case 'new_message':
+        bg = theme.colorScheme.primaryContainer;
+        fg = theme.colorScheme.onPrimaryContainer;
         icon = Icons.chat_bubble_outline;
         break;
-      case 'new_proposal':
-        icon = Icons.request_quote_outlined;
+      case 'proposal_accepted':
+      case 'accepted':
+        bg = semantic.successSoft;
+        fg = semantic.success;
+        icon = Icons.check_circle_outline;
+        break;
+      case 'new_review':
+      case 'review':
+        bg = semantic.warnSoft;
+        fg = semantic.warn;
+        icon = Icons.star_border;
+        break;
+      case 'validation':
+      case 'account_verified':
+        bg = theme.colorScheme.primaryContainer;
+        fg = theme.colorScheme.onPrimaryContainer;
+        icon = Icons.verified_outlined;
+        break;
+      case 'account':
+        bg = semantic.dangerSoft;
+        fg = semantic.danger;
+        icon = Icons.person_outline;
+        break;
+      case 'broadcast':
+        bg = theme.colorScheme.primaryContainer;
+        fg = theme.colorScheme.onPrimaryContainer;
+        icon = Icons.campaign_outlined;
         break;
       default:
+        bg = theme.colorScheme.surfaceContainerHighest;
+        fg = theme.colorScheme.onSurfaceVariant;
         icon = Icons.notifications_none;
     }
 
-    return CircleAvatar(
-      child: Icon(icon, size: 18),
+    return Container(
+      width: 38,
+      height: 38,
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(11)),
+      alignment: Alignment.center,
+      child: Icon(icon, size: 18, color: fg),
     );
   }
 }

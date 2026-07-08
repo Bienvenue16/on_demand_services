@@ -24,6 +24,8 @@ class RequestCreateBloc extends Bloc<RequestCreateEvent, RequestCreateState> {
         description: event.description,
         urgency: event.urgency,
         locationAddress: event.locationAddress,
+        locationLat: event.locationLat,
+        locationLng: event.locationLng,
         photos: event.photos,
       );
 

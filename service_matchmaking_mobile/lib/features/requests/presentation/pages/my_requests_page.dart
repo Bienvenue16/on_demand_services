@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../../../core/widgets/app_bottom_nav.dart';
+import '../../../../core/widgets/gradient_header.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../domain/repositories/requests_repository.dart';
 import '../bloc/my_requests_bloc.dart';
@@ -41,7 +42,7 @@ class MyRequestsPage extends StatelessWidget {
               return CustomScrollView(
                 slivers: [
                   SliverToBoxAdapter(
-                    child: _HeroHeader(
+                    child: GradientHeader(
                       title: 'Mes demandes',
                       subtitle: 'Suivez et gerez vos besoins publies',
                       onBack: () => context.pop(),
@@ -210,52 +211,6 @@ class MyRequestsPage extends StatelessWidget {
   }
 }
 
-class _HeroHeader extends StatelessWidget {
-  const _HeroHeader({
-    required this.title,
-    required this.subtitle,
-    required this.onBack,
-  });
-
-  final String title;
-  final String subtitle;
-  final VoidCallback onBack;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Theme.of(context).colorScheme.primaryContainer,
-            Theme.of(context).colorScheme.surface,
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
-      child: Row(
-        children: [
-          IconButton(
-            onPressed: onBack,
-            icon: const Icon(Icons.arrow_back),
-          ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: Theme.of(context).textTheme.headlineSmall),
-                const SizedBox(height: 2),
-                Text(subtitle),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class _StatusChip extends StatelessWidget {
   const _StatusChip({required this.status});
@@ -264,29 +219,27 @@ class _StatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Color bg;
-    Color fg;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    Color base;
     switch (status) {
       case 'open':
-        bg = Colors.teal.shade50;
-        fg = Colors.teal.shade800;
+        base = Colors.teal;
         break;
       case 'in_progress':
-        bg = Colors.orange.shade50;
-        fg = Colors.orange.shade800;
+        base = Colors.orange;
         break;
       case 'done':
-        bg = Colors.green.shade50;
-        fg = Colors.green.shade800;
+        base = Colors.green;
         break;
       case 'cancelled':
-        bg = Colors.red.shade50;
-        fg = Colors.red.shade800;
+        base = Colors.red;
         break;
       default:
-        bg = Colors.grey.shade200;
-        fg = Colors.grey.shade700;
+        base = Colors.grey;
     }
+    final bg = base.withValues(alpha: isDark ? 0.22 : 0.12);
+    final hsl = HSLColor.fromColor(base);
+    final fg = hsl.withLightness(isDark ? 0.78 : 0.32).toColor();
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),

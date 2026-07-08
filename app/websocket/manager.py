@@ -1,24 +1,32 @@
 from fastapi import WebSocket
 from collections import defaultdict
-from typing import Dict, List
+from typing import Dict, Optional
 
 
 class ConnectionManager:
     def __init__(self):
-        self.rooms: Dict[str, List[WebSocket]] = defaultdict(list)
+        # room_id -> {websocket: user_id} — garder le user_id permet d'exclure
+        # l'expediteur lui-meme d'une diffusion (il a deja son propre message
+        # en local, cote client, via la reponse REST/WS de son envoi).
+        self.rooms: Dict[str, Dict[WebSocket, str]] = defaultdict(dict)
 
-    async def connect(self, room_id: str, ws: WebSocket) -> None:
+    async def connect(self, room_id: str, ws: WebSocket, user_id: str) -> None:
         await ws.accept()
-        self.rooms[room_id].append(ws)
+        self.rooms[room_id][ws] = user_id
 
     def disconnect(self, room_id: str, ws: WebSocket) -> None:
-        room = self.rooms.get(room_id, [])
-        if ws in room:
-            room.remove(ws)
+        self.rooms.get(room_id, {}).pop(ws, None)
 
-    async def send_to_room(self, room_id: str, data: dict) -> None:
+    async def send_to_room(
+        self,
+        room_id: str,
+        data: dict,
+        exclude_user_id: Optional[str] = None,
+    ) -> None:
         dead = []
-        for ws in self.rooms.get(room_id, []):
+        for ws, user_id in list(self.rooms.get(room_id, {}).items()):
+            if exclude_user_id is not None and user_id == exclude_user_id:
+                continue
             try:
                 await ws.send_json(data)
             except Exception:

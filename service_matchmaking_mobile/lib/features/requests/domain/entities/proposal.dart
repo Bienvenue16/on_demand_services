@@ -13,6 +13,11 @@ class Proposal extends Equatable {
     this.requestUrgency,
     this.requestStatus,
     this.requestPhotos = const [],
+    this.requestCategoryId,
+    this.clientId,
+    this.clientName,
+    this.clientAvatarUrl,
+    this.clientLocationAddress,
     this.priceEstimate,
     this.createdAt,
   });
@@ -28,6 +33,11 @@ class Proposal extends Equatable {
   final String? requestUrgency;
   final String? requestStatus;
   final List<String> requestPhotos;
+  final String? requestCategoryId;
+  final String? clientId;
+  final String? clientName;
+  final String? clientAvatarUrl;
+  final String? clientLocationAddress;
   final double? priceEstimate;
   final DateTime? createdAt;
 
@@ -44,6 +54,11 @@ class Proposal extends Equatable {
         requestUrgency,
         requestStatus,
         requestPhotos,
+        requestCategoryId,
+        clientId,
+        clientName,
+        clientAvatarUrl,
+        clientLocationAddress,
         priceEstimate,
         createdAt,
       ];

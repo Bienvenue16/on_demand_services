@@ -8,6 +8,7 @@ import '../features/auth/presentation/pages/register_page.dart';
 import '../features/auth/presentation/pages/reset_password_page.dart';
 import '../features/messages/presentation/pages/messages_page.dart';
 import '../features/notifications/presentation/pages/notifications_page.dart';
+import '../features/provider_profile/presentation/pages/provider_profile_page.dart';
 import '../features/requests/presentation/pages/my_proposals_page.dart';
 import '../features/requests/presentation/pages/my_requests_page.dart';
 import '../features/auth/presentation/pages/login_page.dart';
@@ -97,6 +98,10 @@ class AppRouter {
         GoRoute(
           path: '/profile',
           builder: (context, state) => const ProfilePage(),
+        ),
+        GoRoute(
+          path: '/provider/profile',
+          builder: (context, state) => const ProviderProfilePage(),
         ),
         GoRoute(
           path: '/messages',

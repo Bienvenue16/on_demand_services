@@ -45,6 +45,10 @@ dependencies:
   formz: ^0.8.0
   image_picker: ^1.2.0
   web_socket_channel: ^3.0.3
+  geolocator: ^14.0.2
+  geocoding: ^4.0.0
+  google_fonts: ^8.1.0
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:

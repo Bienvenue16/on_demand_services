@@ -24,13 +24,22 @@ class UserUpdate(BaseModel):
     avatar_url: Optional[str] = None
 
 
+class ProviderLocation(BaseModel):
+    lat: float
+    lng: float
+    city: Optional[str] = None
+    address: Optional[str] = None
+
+
 class ProviderProfileOut(BaseModel):
     user_id: PyObjectId
     bio: Optional[str] = None
     skills: List[str] = []
     categories: List[str] = []
+    location: Optional[ProviderLocation] = None
     radius_km: float
     portfolio: List[str] = []
+    certificates: List[str] = []
     avg_rating: float
     total_reviews: int
     is_verified_provider: bool
@@ -42,4 +51,7 @@ class ProviderProfileUpdate(BaseModel):
     bio: Optional[str] = None
     skills: Optional[List[str]] = None
     categories: Optional[List[str]] = None
+    location: Optional[ProviderLocation] = None
     radius_km: Optional[float] = None
+    portfolio: Optional[List[str]] = None
+    certificates: Optional[List[str]] = None

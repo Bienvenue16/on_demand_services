@@ -25,13 +25,16 @@ class RequestsState extends Equatable {
     List<Category>? categories,
     List<ServiceRequest>? requests,
     String? selectedCategoryId,
+    bool clearSelectedCategoryId = false,
     String? errorMessage,
   }) {
     return RequestsState(
       status: status ?? this.status,
       categories: categories ?? this.categories,
       requests: requests ?? this.requests,
-      selectedCategoryId: selectedCategoryId,
+      selectedCategoryId: clearSelectedCategoryId
+          ? null
+          : (selectedCategoryId ?? this.selectedCategoryId),
       errorMessage: errorMessage,
     );
   }
