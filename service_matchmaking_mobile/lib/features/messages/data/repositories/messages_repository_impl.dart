@@ -370,15 +370,45 @@ class MessagesRepositoryImpl implements MessagesRepository {
     }
   }
 
+  /// Corrige les URLs `localhost`/relatives renvoyees par le backend (avatars,
+  /// medias) pour pointer vers l'hote reel de l'API (ex: tunnel ngrok) : sur un
+  /// telephone, 'localhost' pointe vers le telephone lui-meme, pas le serveur.
   String? _normalizeUrl(String? url) {
     final value = url?.trim();
     if (value == null || value.isEmpty) {
       return null;
     }
+
+    final baseUri = Uri.parse(_apiClient.baseUrl);
+
     if (value.startsWith('http://') || value.startsWith('https://')) {
+      final parsed = Uri.tryParse(value);
+      if (parsed != null) {
+        final host = parsed.host.toLowerCase();
+        if (host == 'localhost' || host == '127.0.0.1' || host == '0.0.0.0') {
+          return Uri(
+            scheme: baseUri.scheme,
+            host: baseUri.host,
+            port: baseUri.hasPort ? baseUri.port : null,
+            path: parsed.path,
+            query: parsed.hasQuery ? parsed.query : null,
+          ).toString();
+        }
+      }
       return value;
     }
-    return value;
+
+    if (value.startsWith('//')) {
+      return '${baseUri.scheme}:$value';
+    }
+
+    final normalizedPath = value.startsWith('/') ? value : '/$value';
+    return Uri(
+      scheme: baseUri.scheme,
+      host: baseUri.host,
+      port: baseUri.hasPort ? baseUri.port : null,
+      path: normalizedPath,
+    ).toString();
   }
 
   String? _extractLastMessage(Map<dynamic, dynamic> item) {

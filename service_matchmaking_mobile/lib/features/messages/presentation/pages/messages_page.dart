@@ -225,14 +225,12 @@ class _MessagesPageState extends State<MessagesPage> {
         return ListTile(
           selected: selected,
           leading: CircleAvatar(
-            backgroundImage: conv.otherUserAvatarUrl != null
+            foregroundImage: (conv.otherUserAvatarUrl != null && conv.otherUserAvatarUrl!.isNotEmpty)
                 ? NetworkImage(conv.otherUserAvatarUrl!)
                 : null,
-            child: conv.otherUserAvatarUrl == null
-                ? Text(
-                    conv.otherUserName.isEmpty ? 'U' : conv.otherUserName[0].toUpperCase(),
-                  )
-                : null,
+            child: Text(
+              conv.otherUserName.isEmpty ? 'U' : conv.otherUserName[0].toUpperCase(),
+            ),
           ),
           title: Text(conv.otherUserName, style: const TextStyle(fontWeight: FontWeight.w700)),
           subtitle: Text(
@@ -306,16 +304,15 @@ class _MessagesPageState extends State<MessagesPage> {
             child: Row(
               children: [
                 CircleAvatar(
-                  backgroundImage: activeConversation.otherUserAvatarUrl != null
+                  foregroundImage: (activeConversation.otherUserAvatarUrl != null &&
+                          activeConversation.otherUserAvatarUrl!.isNotEmpty)
                       ? NetworkImage(activeConversation.otherUserAvatarUrl!)
                       : null,
-                  child: activeConversation.otherUserAvatarUrl == null
-                      ? Text(
-                          activeConversation.otherUserName.isEmpty
-                              ? 'U'
-                              : activeConversation.otherUserName[0].toUpperCase(),
-                        )
-                      : null,
+                  child: Text(
+                    activeConversation.otherUserName.isEmpty
+                        ? 'U'
+                        : activeConversation.otherUserName[0].toUpperCase(),
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
