@@ -44,9 +44,9 @@ class _LoginPageState extends State<LoginPage> {
                     listener: (context, state) {
                       final message = state.errorMessage;
                       if (message != null && message.isNotEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(message)),
-                        );
+                        ScaffoldMessenger.of(
+                          context,
+                        ).showSnackBar(SnackBar(content: Text(message)));
                       }
                     },
                     builder: (context, state) {
@@ -106,15 +106,16 @@ class _LoginPageState extends State<LoginPage> {
                                 onPressed: isLoading
                                     ? null
                                     : () {
-                                        if (!_formKey.currentState!.validate()) {
+                                        if (!_formKey.currentState!
+                                            .validate()) {
                                           return;
                                         }
                                         context.read<AuthBloc>().add(
-                                              AuthLoginRequested(
-                                                email: _emailController.text.trim(),
-                                                password: _passwordController.text,
-                                              ),
-                                            );
+                                          AuthLoginRequested(
+                                            email: _emailController.text.trim(),
+                                            password: _passwordController.text,
+                                          ),
+                                        );
                                       },
                                 child: isLoading
                                     ? const SizedBox(
@@ -128,16 +129,27 @@ class _LoginPageState extends State<LoginPage> {
                               ),
                             ),
                             const SizedBox(height: 12),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            Wrap(
+                              alignment: WrapAlignment.spaceBetween,
+                              crossAxisAlignment: WrapCrossAlignment.center,
                               children: [
                                 TextButton(
+                                  style: TextButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                    ),
+                                  ),
                                   onPressed: isLoading
                                       ? null
                                       : () => context.go('/forgot-password'),
                                   child: const Text('Mot de passe oublie ?'),
                                 ),
                                 TextButton(
+                                  style: TextButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                    ),
+                                  ),
                                   onPressed: isLoading
                                       ? null
                                       : () => context.go('/register'),

@@ -13,6 +13,7 @@ class MessagesState extends Equatable {
     this.messagesByRoom = const {},
     this.isSocketConnected = false,
     this.isOtherTyping = false,
+    this.replyingTo,
     this.errorMessage,
     this.currentUserId,
   });
@@ -23,6 +24,7 @@ class MessagesState extends Equatable {
   final Map<String, List<ChatMessage>> messagesByRoom;
   final bool isSocketConnected;
   final bool isOtherTyping;
+  final ChatMessage? replyingTo;
   final String? errorMessage;
   final String? currentUserId;
 
@@ -36,6 +38,8 @@ class MessagesState extends Equatable {
     Map<String, List<ChatMessage>>? messagesByRoom,
     bool? isSocketConnected,
     bool? isOtherTyping,
+    ChatMessage? replyingTo,
+    bool clearReplyingTo = false,
     String? errorMessage,
     String? currentUserId,
   }) {
@@ -46,6 +50,7 @@ class MessagesState extends Equatable {
       messagesByRoom: messagesByRoom ?? this.messagesByRoom,
       isSocketConnected: isSocketConnected ?? this.isSocketConnected,
       isOtherTyping: isOtherTyping ?? this.isOtherTyping,
+      replyingTo: clearReplyingTo ? null : (replyingTo ?? this.replyingTo),
       errorMessage: errorMessage,
       currentUserId: currentUserId ?? this.currentUserId,
     );
@@ -59,6 +64,7 @@ class MessagesState extends Equatable {
         messagesByRoom,
         isSocketConnected,
         isOtherTyping,
+        replyingTo,
         errorMessage,
         currentUserId,
       ];

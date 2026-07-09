@@ -18,6 +18,9 @@ class MessagesRepositoryImpl implements MessagesRepository {
 
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _socketSubscription;
+  String? _activeRoomId;
+  Timer? _reconnectTimer;
+  static const _reconnectDelay = Duration(seconds: 3);
   final StreamController<ChatMessage> _controller =
       StreamController<ChatMessage>.broadcast();
   final StreamController<bool> _connectionController =
@@ -26,6 +29,8 @@ class MessagesRepositoryImpl implements MessagesRepository {
       StreamController<TypingEvent>.broadcast();
   final StreamController<String> _readController =
       StreamController<String>.broadcast();
+  final StreamController<MessageUpdateEvent> _updatesController =
+      StreamController<MessageUpdateEvent>.broadcast();
 
   @override
   Stream<bool> get connectionStatus => _connectionController.stream;
@@ -37,13 +42,13 @@ class MessagesRepositoryImpl implements MessagesRepository {
   Stream<String> get readEvents => _readController.stream;
 
   @override
+  Stream<MessageUpdateEvent> get messageUpdates => _updatesController.stream;
+
+  @override
   Future<String> startConversation(String requestId, String recipientId) async {
     final response = await _apiClient.post(
       '/messages/room',
-      data: {
-        'request_id': requestId,
-        'other_user_id': recipientId,
-      },
+      data: {'request_id': requestId, 'other_user_id': recipientId},
     );
 
     final roomId = (response['room_id'] ?? response['roomId'] ?? '').toString();
@@ -58,25 +63,31 @@ class MessagesRepositoryImpl implements MessagesRepository {
     final rawItems = await _apiClient.getList('/messages/conversations');
     final conversations = rawItems
         .whereType<Map<dynamic, dynamic>>()
-        .map(
-          (item) {
-            final roomId = (item['room_id'] ?? item['roomId'] ?? '').toString();
-            final requestMap = item['request'];
-            final requestId = requestMap is Map<dynamic, dynamic>
-                ? (requestMap['id'] ?? requestMap['_id'] ?? _extractRequestId(roomId)).toString()
-                : _extractRequestId(roomId);
-            return Conversation(
+        .map((item) {
+          final roomId = (item['room_id'] ?? item['roomId'] ?? '').toString();
+          final requestMap = item['request'];
+          final requestId = requestMap is Map<dynamic, dynamic>
+              ? (requestMap['id'] ??
+                        requestMap['_id'] ??
+                        _extractRequestId(roomId))
+                    .toString()
+              : _extractRequestId(roomId);
+          return Conversation(
+            roomId: roomId,
+            requestId: requestId,
+            otherUserId: _extractOtherUserId(
+              item,
               roomId: roomId,
-              requestId: requestId,
-              otherUserId: _extractOtherUserId(item, roomId: roomId, currentUserId: currentUserId),
-              otherUserName: _extractOtherUserName(item),
-              otherUserAvatarUrl: _extractOtherUserAvatarUrl(item),
-              lastMessage: _extractLastMessage(item),
-              requestTitle: _extractRequestTitle(item),
-              unreadCount: int.tryParse((item['unread_count'] ?? 0).toString()) ?? 0,
-            );
-          },
-        )
+              currentUserId: currentUserId,
+            ),
+            otherUserName: _extractOtherUserName(item),
+            otherUserAvatarUrl: _extractOtherUserAvatarUrl(item),
+            lastMessage: _extractLastMessage(item),
+            requestTitle: _extractRequestTitle(item),
+            unreadCount:
+                int.tryParse((item['unread_count'] ?? 0).toString()) ?? 0,
+          );
+        })
         .where((conv) => conv.roomId.isNotEmpty)
         .toList();
 
@@ -85,16 +96,21 @@ class MessagesRepositoryImpl implements MessagesRepository {
 
   @override
   Future<List<ChatMessage>> getHistory(String roomId) async {
-    final data = await _apiClient.get('/messages/$roomId/history', query: {
-      'page': 1,
-      'limit': 50,
-    });
+    final data = await _apiClient.get(
+      '/messages/$roomId/history',
+      query: {'page': 1, 'limit': 50},
+    );
 
     final dynamic rawItems = data['data'] ?? data['items'] ?? <dynamic>[];
-    return (rawItems is List ? rawItems : <dynamic>[])
+    // Le backend trie par date decroissante (le plus recent d'abord) pour la
+    // pagination ; l'app affiche par contre l'historique du plus ancien au
+    // plus recent (comme les nouveaux messages temps reel qui s'ajoutent a la
+    // fin), donc on remet la page dans l'ordre chronologique ici.
+    final messages = (rawItems is List ? rawItems : <dynamic>[])
         .whereType<Map<dynamic, dynamic>>()
         .map((item) => _mapMessage(item, roomId: roomId))
         .toList();
+    return messages.reversed.toList();
   }
 
   @override
@@ -102,11 +118,21 @@ class MessagesRepositoryImpl implements MessagesRepository {
     required String roomId,
     required String content,
     String? mediaUrl,
+    String? mediaType,
+    double? audioDurationSeconds,
+    String? replyToId,
   }) async {
-    final data = await _apiClient.post('/messages/$roomId', data: {
-      'content': content,
-      if (mediaUrl != null && mediaUrl.isNotEmpty) 'media_url': mediaUrl,
-    });
+    final data = await _apiClient.post(
+      '/messages/$roomId',
+      data: {
+        'content': content,
+        if (mediaUrl != null && mediaUrl.isNotEmpty) 'media_url': mediaUrl,
+        if (mediaType != null && mediaType.isNotEmpty) 'media_type': mediaType,
+        if (audioDurationSeconds != null)
+          'audio_duration_seconds': audioDurationSeconds,
+        if (replyToId != null && replyToId.isNotEmpty) 'reply_to_id': replyToId,
+      },
+    );
     return _mapMessage(data, roomId: roomId);
   }
 
@@ -121,6 +147,40 @@ class MessagesRepositoryImpl implements MessagesRepository {
     );
     final raw = (data['url'] ?? data['file_url'] ?? data['path'])?.toString();
     return _normalizeUrl(raw);
+  }
+
+  @override
+  Future<String?> uploadVoiceMessage(String filePath) async {
+    final data = await _apiClient.postMultipart(
+      '/uploads/image',
+      data: FormData.fromMap({
+        'file': await MultipartFile.fromFile(filePath),
+        'file_type': 'voice',
+      }),
+    );
+    final raw = (data['url'] ?? data['file_url'] ?? data['path'])?.toString();
+    return _normalizeUrl(raw);
+  }
+
+  @override
+  Future<void> editMessage(String messageId, String content) async {
+    await _apiClient.patch(
+      '/messages/message/$messageId',
+      data: {'content': content},
+    );
+  }
+
+  @override
+  Future<void> deleteMessage(String messageId) async {
+    await _apiClient.delete('/messages/message/$messageId');
+  }
+
+  @override
+  Future<void> toggleReaction(String messageId, String emoji) async {
+    await _apiClient.post(
+      '/messages/message/$messageId/react',
+      data: {'emoji': emoji},
+    );
   }
 
   @override
@@ -146,42 +206,99 @@ class MessagesRepositoryImpl implements MessagesRepository {
   }
 
   void _connect(String roomId) {
-    unawaited(disconnectRoom());
+    _activeRoomId = roomId;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    unawaited(_closeChannel());
     _safeEmitConnection(false);
 
     _apiClient.getAccessToken().then((token) {
+      // Le salon a change ou ete ferme entre-temps : cette tentative est perimee.
+      if (_activeRoomId != roomId) return;
       if (token == null || token.isEmpty) return;
 
-      final wsUri = _buildWsUri(roomId, token);
-      _channel = WebSocketChannel.connect(wsUri);
-      _safeEmitConnection(true);
-      _socketSubscription = _channel!.stream.listen(
-        (event) {
-          try {
-            final payload = event is String ? jsonDecode(event) : event;
-            if (payload is! Map<String, dynamic>) return;
+      try {
+        final wsUri = _buildWsUri(roomId, token);
+        _channel = WebSocketChannel.connect(wsUri);
+        _safeEmitConnection(true);
+        _socketSubscription = _channel!.stream.listen(
+          (event) {
+            try {
+              final payload = event is String ? jsonDecode(event) : event;
+              if (payload is! Map<String, dynamic>) return;
 
-            switch (payload['type']?.toString() ?? 'text') {
-              case 'typing':
-                _typingController.add((
-                  senderId: (payload['sender_id'] ?? '').toString(),
-                  isTyping: payload['is_typing'] == true,
-                ));
-                break;
-              case 'read':
-                _readController.add((payload['reader_id'] ?? '').toString());
-                break;
-              default:
-                _controller.add(_mapMessage(payload, roomId: roomId));
+              switch (payload['type']?.toString() ?? 'text') {
+                case 'typing':
+                  _typingController.add((
+                    senderId: (payload['sender_id'] ?? '').toString(),
+                    isTyping: payload['is_typing'] == true,
+                  ));
+                  break;
+                case 'read':
+                  _readController.add((payload['reader_id'] ?? '').toString());
+                  break;
+                case 'message_edited':
+                  _updatesController.add((
+                    roomId: (payload['room_id'] ?? roomId).toString(),
+                    messageId: (payload['message_id'] ?? '').toString(),
+                    type: 'edited',
+                    content: payload['content']?.toString(),
+                    reactions: null,
+                  ));
+                  break;
+                case 'message_deleted':
+                  _updatesController.add((
+                    roomId: (payload['room_id'] ?? roomId).toString(),
+                    messageId: (payload['message_id'] ?? '').toString(),
+                    type: 'deleted',
+                    content: null,
+                    reactions: null,
+                  ));
+                  break;
+                case 'reaction_updated':
+                  _updatesController.add((
+                    roomId: (payload['room_id'] ?? roomId).toString(),
+                    messageId: (payload['message_id'] ?? '').toString(),
+                    type: 'reaction',
+                    content: null,
+                    reactions: _parseReactions(payload['reactions']),
+                  ));
+                  break;
+                default:
+                  _controller.add(_mapMessage(payload, roomId: roomId));
+              }
+            } catch (_) {
+              // Ignore malformed websocket payloads.
             }
-          } catch (_) {
-            // Ignore malformed websocket payloads.
-          }
-        },
-        onDone: () => _safeEmitConnection(false),
-        onError: (_) => _safeEmitConnection(false),
-      );
+          },
+          onDone: () => _handleDisconnected(roomId),
+          onError: (_) => _handleDisconnected(roomId),
+        );
+      } catch (_) {
+        _handleDisconnected(roomId);
+      }
     });
+  }
+
+  /// Reagit a une coupure (volontaire ou non) du canal WebSocket : si le salon
+  /// est toujours celui suivi activement, planifie une reconnexion automatique.
+  void _handleDisconnected(String roomId) {
+    _safeEmitConnection(false);
+    if (_activeRoomId != roomId) return;
+
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(_reconnectDelay, () {
+      if (_activeRoomId == roomId) {
+        _connect(roomId);
+      }
+    });
+  }
+
+  Future<void> _closeChannel() async {
+    await _socketSubscription?.cancel();
+    _socketSubscription = null;
+    await _channel?.sink.close();
+    _channel = null;
   }
 
   Uri _buildWsUri(String roomId, String token) {
@@ -199,10 +316,10 @@ class MessagesRepositoryImpl implements MessagesRepository {
 
   @override
   Future<void> disconnectRoom() async {
-    await _socketSubscription?.cancel();
-    _socketSubscription = null;
-    await _channel?.sink.close();
-    _channel = null;
+    _activeRoomId = null;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    await _closeChannel();
     _safeEmitConnection(false);
   }
 
@@ -222,13 +339,17 @@ class MessagesRepositoryImpl implements MessagesRepository {
     final enriched = await Future.wait(
       conversations.map((conversation) async {
         final needsUserPreview =
-            conversation.otherUserName.isEmpty || conversation.otherUserAvatarUrl == null;
+            conversation.otherUserName.isEmpty ||
+            conversation.otherUserAvatarUrl == null;
         final needsRequestPreview =
-            conversation.requestTitle == null || conversation.requestTitle!.trim().isEmpty;
-        final userPreview = needsUserPreview && conversation.otherUserId.isNotEmpty
+            conversation.requestTitle == null ||
+            conversation.requestTitle!.trim().isEmpty;
+        final userPreview =
+            needsUserPreview && conversation.otherUserId.isNotEmpty
             ? await _fetchUserPreview(conversation.otherUserId)
             : const <String, String?>{};
-        final requestPreview = needsRequestPreview && conversation.requestId.isNotEmpty
+        final requestPreview =
+            needsRequestPreview && conversation.requestId.isNotEmpty
             ? await _fetchRequestPreview(conversation.requestId)
             : const <String, String?>{};
 
@@ -239,7 +360,8 @@ class MessagesRepositoryImpl implements MessagesRepository {
           otherUserName: conversation.otherUserName.isNotEmpty
               ? conversation.otherUserName
               : (userPreview['fullName'] ?? 'Utilisateur'),
-          otherUserAvatarUrl: conversation.otherUserAvatarUrl ?? userPreview['avatarUrl'],
+          otherUserAvatarUrl:
+              conversation.otherUserAvatarUrl ?? userPreview['avatarUrl'],
           lastMessage: conversation.lastMessage,
           requestTitle: conversation.requestTitle ?? requestPreview['title'],
           unreadCount: conversation.unreadCount,
@@ -281,7 +403,9 @@ class MessagesRepositoryImpl implements MessagesRepository {
         (otherUser['avatar_url'] ?? otherUser['avatar'])?.toString(),
       );
     }
-    return _normalizeUrl((item['other_user_avatar_url'] ?? item['other_user_avatar'])?.toString());
+    return _normalizeUrl(
+      (item['other_user_avatar_url'] ?? item['other_user_avatar'])?.toString(),
+    );
   }
 
   String _extractOtherUserName(Map<dynamic, dynamic> item) {
@@ -342,10 +466,18 @@ class MessagesRepositoryImpl implements MessagesRepository {
     try {
       final data = await _apiClient.get('/users/$userId');
       final preview = <String, String?>{
-        'fullName': (data['full_name'] ?? data['fullName'] ?? 'Utilisateur').toString(),
-        'avatarUrl': _normalizeUrl((data['avatar_url'] ?? data['avatar'])?.toString()),
+        'fullName': (data['full_name'] ?? data['fullName'] ?? 'Utilisateur')
+            .toString(),
+        'avatarUrl': _normalizeUrl(
+          (data['avatar_url'] ?? data['avatar'])?.toString(),
+        ),
       };
-      _userPreviewCache[userId] = preview;
+      // On ne memorise durablement que si un avatar existe : sinon un compte
+      // fraichement cree (sans photo au premier chargement) resterait sans
+      // avatar pour le reste de la session, meme apres l'upload d'une photo.
+      if (preview['avatarUrl'] != null) {
+        _userPreviewCache[userId] = preview;
+      }
       return preview;
     } catch (_) {
       return const {};
@@ -419,21 +551,62 @@ class MessagesRepositoryImpl implements MessagesRepository {
     return item['last_message']?.toString();
   }
 
-  ChatMessage _mapMessage(Map<dynamic, dynamic> item, {required String roomId}) {
+  ChatMessage _mapMessage(
+    Map<dynamic, dynamic> item, {
+    required String roomId,
+  }) {
+    final replyToMap = item['reply_to'];
     return ChatMessage(
       // 'message_id' est la cle utilisee par les payloads WebSocket ; 'id'/'_id'
       // par les reponses REST. Sans ce fallback, l'anti-doublon (comparaison
       // d'id) ne matche jamais entre les deux sources et le message apparait deux fois.
-      id: (item['id'] ?? item['_id'] ?? item['message_id'] ?? DateTime.now().microsecondsSinceEpoch.toString())
-          .toString(),
+      id:
+          (item['id'] ??
+                  item['_id'] ??
+                  item['message_id'] ??
+                  DateTime.now().microsecondsSinceEpoch.toString())
+              .toString(),
       roomId: (item['room_id'] ?? roomId).toString(),
       senderId: (item['sender_id'] ?? '').toString(),
       content: (item['content'] ?? '').toString(),
-      createdAt: DateTime.tryParse((item['created_at'] ?? item['timestamp'] ?? '').toString()) ??
+      createdAt:
+          DateTime.tryParse(
+            (item['created_at'] ?? item['timestamp'] ?? '').toString(),
+          ) ??
           DateTime.now(),
       isRead: item['is_read'] == true,
       mediaUrl: _normalizeUrl(item['media_url']?.toString()),
+      mediaType: item['media_type']?.toString(),
+      audioDurationSeconds: _toDoubleOrNull(item['audio_duration_seconds']),
+      replyTo: replyToMap is Map<dynamic, dynamic>
+          ? ReplyPreview(
+              id: (replyToMap['id'] ?? '').toString(),
+              senderId: (replyToMap['sender_id'] ?? '').toString(),
+              content: (replyToMap['content'] ?? '').toString(),
+              mediaType: replyToMap['media_type']?.toString(),
+            )
+          : null,
+      isDeleted: item['is_deleted'] == true,
+      editedAt: DateTime.tryParse((item['edited_at'] ?? '').toString()),
+      reactions: _parseReactions(item['reactions']),
     );
+  }
+
+  Map<String, List<String>> _parseReactions(dynamic raw) {
+    if (raw is! Map) return const {};
+    return raw.map(
+      (key, value) => MapEntry(
+        key.toString(),
+        value is List ? value.map((e) => e.toString()).toList() : <String>[],
+      ),
+    );
+  }
+
+  double? _toDoubleOrNull(dynamic value) {
+    if (value == null) return null;
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    return double.tryParse(value.toString());
   }
 
   Future<void> dispose() async {
@@ -442,5 +615,6 @@ class MessagesRepositoryImpl implements MessagesRepository {
     await _controller.close();
     await _typingController.close();
     await _readController.close();
+    await _updatesController.close();
   }
 }

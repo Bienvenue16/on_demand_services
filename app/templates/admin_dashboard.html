@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard — Services App Admin</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            --bg: #f4f6f8;
+            --card-bg: #ffffff;
+            --text: #1a1f27;
+            --muted: #6b7280;
+            --border: #e2e5ea;
+            --primary: #4f46e5;
+            --primary-fg: #ffffff;
+            --success-bg: #ecfdf5;
+            --success-fg: #047857;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 28px;
+            background: var(--card-bg);
+            border-bottom: 1px solid var(--border);
+        }
+        header h1 { font-size: 18px; margin: 0; }
+        header nav a {
+            margin-left: 16px;
+            color: var(--primary);
+            text-decoration: none;
+            font-size: 14px;
+        }
+        header nav a:hover { text-decoration: underline; }
+        main {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 28px;
+        }
+        .flash {
+            background: var(--success-bg);
+            color: var(--success-fg);
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 14px;
+            margin-bottom: 32px;
+        }
+        .stat-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+        }
+        .stat-card .value { font-size: 28px; font-weight: 700; }
+        .stat-card .label { font-size: 13px; color: var(--muted); margin-top: 4px; }
+        section.card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+        }
+        section.card h2 { font-size: 15px; margin: 0 0 16px; }
+        form .field { margin-bottom: 14px; }
+        label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+        input[type="text"], select, textarea {
+            width: 100%;
+            padding: 9px 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            background: transparent;
+            color: var(--text);
+        }
+        textarea { min-height: 80px; resize: vertical; }
+        button {
+            background: var(--primary);
+            color: var(--primary-fg);
+            border: none;
+            border-radius: 8px;
+            padding: 10px 18px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        button:hover { opacity: 0.9; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Services App — Dashboard admin</h1>
+        <nav>
+            <span style="color: var(--muted); font-size: 14px;">{{ admin.email }}</span>
+            <a href="/admin-panel">Panel CRUD</a>
+            <a href="/admin-panel/logout">Déconnexion</a>
+        </nav>
+    </header>
+    <main>
+        {% if message %}
+        <div class="flash">{{ message }}</div>
+        {% endif %}
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="value">{{ stats.users.total }}</div>
+                <div class="label">Utilisateurs</div>
+            </div>
+            <div class="stat-card">
+                <div class="value">{{ stats.users.clients }}</div>
+                <div class="label">Clients</div>
+            </div>
+            <div class="stat-card">
+                <div class="value">{{ stats.users.providers }}</div>
+                <div class="label">Prestataires</div>
+            </div>
+            <div class="stat-card">
+                <div class="value">{{ stats.users.banned }}</div>
+                <div class="label">Bannis</div>
+            </div>
+            <div class="stat-card">
+                <div class="value">{{ stats.service_requests.total }}</div>
+                <div class="label">Demandes de service</div>
+            </div>
+            <div class="stat-card">
+                <div class="value">{{ stats.pending_validations }}</div>
+                <div class="label">Validations en attente</div>
+            </div>
+            <div class="stat-card">
+                <div class="value">{{ stats.pending_reports }}</div>
+                <div class="label">Signalements en attente</div>
+            </div>
+        </div>
+
+        <section class="card">
+            <h2>Envoyer une notification broadcast</h2>
+            <form method="post" action="/admin/dashboard/broadcast">
+                <div class="field">
+                    <label for="title">Titre</label>
+                    <input type="text" id="title" name="title" required maxlength="120">
+                </div>
+                <div class="field">
+                    <label for="body">Message</label>
+                    <textarea id="body" name="body" required maxlength="500"></textarea>
+                </div>
+                <div class="field">
+                    <label for="target">Destinataires</label>
+                    <select id="target" name="target">
+                        <option value="all">Tous les utilisateurs</option>
+                        <option value="clients">Clients uniquement</option>
+                        <option value="providers">Prestataires uniquement</option>
+                    </select>
+                </div>
+                <button type="submit">Envoyer</button>
+            </form>
+        </section>
+    </main>
+</body>
+</html>

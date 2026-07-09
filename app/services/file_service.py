@@ -4,19 +4,29 @@ import os
 from fastapi import UploadFile, HTTPException
 from app.core.config import settings
 
-ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp"}
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
+ALLOWED_AUDIO_TYPES = {
+    "audio/aac", "audio/mp4", "audio/m4a", "audio/x-m4a",
+    "audio/mpeg", "audio/wav", "audio/webm", "audio/ogg",
+}
+ALLOWED_TYPES = ALLOWED_IMAGE_TYPES | ALLOWED_AUDIO_TYPES
 FOLDERS = {
     "avatar": "avatars",
     "portfolio": "portfolio",
     "request": "requests",
     "message": "messages",
     "certificate": "certificates",
+    "voice": "messages",
 }
 
 
 async def save_upload(file: UploadFile, file_type: str) -> str:
     if file.content_type not in ALLOWED_TYPES:
-        raise HTTPException(400, detail=f"Type non autorisé. Acceptés : jpeg, png, webp")
+        raise HTTPException(
+            400,
+            detail="Type non autorisé. Acceptés : jpeg, png, webp (images), "
+                   "aac, mp4/m4a, mpeg, wav, webm, ogg (audio)",
+        )
     content = await file.read()
     max_bytes = settings.MAX_FILE_SIZE_MB * 1024 * 1024
     if len(content) > max_bytes:

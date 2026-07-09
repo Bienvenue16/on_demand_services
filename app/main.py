@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.core.database import init_db
 from app.core.exceptions import add_exception_handlers
 from app.routers import auth, users, requests, proposals, messages, websocket, \
-                        reviews, notifications, categories, uploads, admin
+                        reviews, notifications, categories, uploads, admin, admin_dashboard
 
 # Sérialise tous les ObjectId MongoDB en string automatiquement
 ENCODERS_BY_TYPE[ObjectId] = str
@@ -50,6 +50,7 @@ app.include_router(notifications.router, prefix="/notifications", tags=["Notific
 app.include_router(categories.router,    prefix="/categories",    tags=["Categories"])
 app.include_router(uploads.router,       prefix="/uploads",       tags=["Uploads"])
 app.include_router(admin.router,         prefix="/admin",         tags=["Admin"])
+app.include_router(admin_dashboard.router, prefix="/admin",       tags=["Admin Dashboard"])
 
 # ---------------------------------------------------------------------------
 # Panel admin UI — accessible sur /admin-panel

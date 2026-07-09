@@ -13,9 +13,17 @@ class MessagesBloc extends Bloc<MessagesEvent, MessagesState> {
     on<MessagesConversationOpened>(_onConversationOpened);
     on<MessagesSendRequested>(_onSendRequested);
     on<MessagesImageSendRequested>(_onImageSendRequested);
+    on<MessagesVoiceSendRequested>(_onVoiceSendRequested);
+    on<MessagesReplyToRequested>(_onReplyToRequested);
+    on<MessagesEditRequested>(_onEditRequested);
+    on<MessagesDeleteRequested>(_onDeleteRequested);
+    on<MessagesReactionToggled>(_onReactionToggled);
+    on<MessagesUpdateReceived>(_onUpdateReceived);
     on<MessagesTypingRequested>(_onTypingRequested);
     on<MessagesTypingReceived>(_onTypingReceived);
     on<MessagesReadReceiptReceived>(_onReadReceiptReceived);
+    on<MessagesConversationsRefreshRequested>(_onConversationsRefreshRequested);
+    on<MessagesHistoryRefreshRequested>(_onHistoryRefreshRequested);
     on<MessagesSocketReceived>(_onSocketReceived);
     on<MessagesConnectionChanged>(_onConnectionChanged);
     on<MessagesReconnectRequested>(_onReconnectRequested);
@@ -26,6 +34,7 @@ class MessagesBloc extends Bloc<MessagesEvent, MessagesState> {
   StreamSubscription<bool>? _connectionSubscription;
   StreamSubscription<TypingEvent>? _typingSubscription;
   StreamSubscription<String>? _readSubscription;
+  StreamSubscription<MessageUpdateEvent>? _updatesSubscription;
   Timer? _typingTimeoutTimer;
 
   Future<void> _onStarted(
@@ -88,21 +97,13 @@ class MessagesBloc extends Bloc<MessagesEvent, MessagesState> {
           activeRoomId: event.roomId,
           messagesByRoom: updated,
           isOtherTyping: false,
+          clearReplyingTo: true,
         ),
       );
 
       await _roomSubscription?.cancel();
       _roomSubscription = _messagesRepository.watchRoom(event.roomId).listen((incoming) {
-        add(
-          MessagesSocketReceived(
-            incoming.id,
-            incoming.roomId,
-            incoming.senderId,
-            incoming.content,
-            incoming.createdAt,
-            mediaUrl: incoming.mediaUrl,
-          ),
-        );
+        add(MessagesSocketReceived(incoming));
       });
 
       await _connectionSubscription?.cancel();
@@ -118,6 +119,19 @@ class MessagesBloc extends Bloc<MessagesEvent, MessagesState> {
       await _readSubscription?.cancel();
       _readSubscription = _messagesRepository.readEvents.listen((readerId) {
         add(MessagesReadReceiptReceived(readerId));
+      });
+
+      await _updatesSubscription?.cancel();
+      _updatesSubscription = _messagesRepository.messageUpdates.listen((update) {
+        add(
+          MessagesUpdateReceived(
+            roomId: update.roomId,
+            messageId: update.messageId,
+            updateType: update.type,
+            content: update.content,
+            reactions: update.reactions,
+          ),
+        );
       });
     } catch (e) {
       emit(
@@ -138,8 +152,12 @@ class MessagesBloc extends Bloc<MessagesEvent, MessagesState> {
       final sent = await _messagesRepository.sendMessage(
         roomId: event.roomId,
         content: event.content,
+        replyToId: event.replyToId,
       );
       _appendMessage(sent, emit);
+      if (event.replyToId != null) {
+        emit(state.copyWith(clearReplyingTo: true));
+      }
     } catch (e) {
       emit(
         state.copyWith(
@@ -170,8 +188,13 @@ class MessagesBloc extends Bloc<MessagesEvent, MessagesState> {
         roomId: event.roomId,
         content: '',
         mediaUrl: mediaUrl,
+        mediaType: 'image',
+        replyToId: event.replyToId,
       );
       _appendMessage(sent, emit);
+      if (event.replyToId != null) {
+        emit(state.copyWith(clearReplyingTo: true));
+      }
     } catch (e) {
       emit(
         state.copyWith(
@@ -179,6 +202,174 @@ class MessagesBloc extends Bloc<MessagesEvent, MessagesState> {
           errorMessage: e.toString(),
         ),
       );
+    }
+  }
+
+  Future<void> _onVoiceSendRequested(
+    MessagesVoiceSendRequested event,
+    Emitter<MessagesState> emit,
+  ) async {
+    try {
+      final mediaUrl = await _messagesRepository.uploadVoiceMessage(event.filePath);
+      if (mediaUrl == null || mediaUrl.isEmpty) {
+        emit(
+          state.copyWith(
+            status: MessagesStatus.failure,
+            errorMessage: 'Echec de l\'envoi du message vocal',
+          ),
+        );
+        return;
+      }
+
+      final sent = await _messagesRepository.sendMessage(
+        roomId: event.roomId,
+        content: '',
+        mediaUrl: mediaUrl,
+        mediaType: 'audio',
+        audioDurationSeconds: event.durationSeconds,
+        replyToId: event.replyToId,
+      );
+      _appendMessage(sent, emit);
+      if (event.replyToId != null) {
+        emit(state.copyWith(clearReplyingTo: true));
+      }
+    } catch (e) {
+      emit(
+        state.copyWith(
+          status: MessagesStatus.failure,
+          errorMessage: e.toString(),
+        ),
+      );
+    }
+  }
+
+  Future<void> _onReplyToRequested(
+    MessagesReplyToRequested event,
+    Emitter<MessagesState> emit,
+  ) async {
+    if (event.message == null) {
+      emit(state.copyWith(clearReplyingTo: true));
+    } else {
+      emit(state.copyWith(replyingTo: event.message));
+    }
+  }
+
+  Future<void> _onEditRequested(
+    MessagesEditRequested event,
+    Emitter<MessagesState> emit,
+  ) async {
+    final roomId = state.activeRoomId;
+    if (roomId == null) return;
+
+    // Optimiste : on applique tout de suite localement, sans attendre le serveur.
+    _updateMessage(roomId, event.messageId, emit, (m) => m.copyWith(content: event.content));
+
+    try {
+      await _messagesRepository.editMessage(event.messageId, event.content);
+    } catch (e) {
+      emit(
+        state.copyWith(
+          status: MessagesStatus.failure,
+          errorMessage: e.toString(),
+        ),
+      );
+    }
+  }
+
+  Future<void> _onDeleteRequested(
+    MessagesDeleteRequested event,
+    Emitter<MessagesState> emit,
+  ) async {
+    final roomId = state.activeRoomId;
+    if (roomId == null) return;
+
+    _updateMessage(
+      roomId,
+      event.messageId,
+      emit,
+      (m) => m.copyWith(isDeleted: true, content: '', mediaUrl: null),
+    );
+
+    try {
+      await _messagesRepository.deleteMessage(event.messageId);
+    } catch (e) {
+      emit(
+        state.copyWith(
+          status: MessagesStatus.failure,
+          errorMessage: e.toString(),
+        ),
+      );
+    }
+  }
+
+  Future<void> _onReactionToggled(
+    MessagesReactionToggled event,
+    Emitter<MessagesState> emit,
+  ) async {
+    final roomId = state.activeRoomId;
+    if (roomId == null) return;
+    final currentUserId = state.currentUserId;
+
+    // Optimiste : bascule immediate cote local, en attendant la confirmation serveur.
+    _updateMessage(roomId, event.messageId, emit, (m) {
+      final reactions = Map<String, List<String>>.from(
+        m.reactions.map((key, value) => MapEntry(key, [...value])),
+      );
+      final users = reactions[event.emoji] ?? <String>[];
+      if (currentUserId != null && users.contains(currentUserId)) {
+        users.remove(currentUserId);
+      } else if (currentUserId != null) {
+        users.add(currentUserId);
+      }
+      if (users.isEmpty) {
+        reactions.remove(event.emoji);
+      } else {
+        reactions[event.emoji] = users;
+      }
+      return m.copyWith(reactions: reactions);
+    });
+
+    try {
+      await _messagesRepository.toggleReaction(event.messageId, event.emoji);
+    } catch (e) {
+      emit(
+        state.copyWith(
+          status: MessagesStatus.failure,
+          errorMessage: e.toString(),
+        ),
+      );
+    }
+  }
+
+  Future<void> _onUpdateReceived(
+    MessagesUpdateReceived event,
+    Emitter<MessagesState> emit,
+  ) async {
+    switch (event.updateType) {
+      case 'edited':
+        _updateMessage(
+          event.roomId,
+          event.messageId,
+          emit,
+          (m) => m.copyWith(content: event.content ?? m.content),
+        );
+        break;
+      case 'deleted':
+        _updateMessage(
+          event.roomId,
+          event.messageId,
+          emit,
+          (m) => m.copyWith(isDeleted: true, content: '', mediaUrl: null),
+        );
+        break;
+      case 'reaction':
+        _updateMessage(
+          event.roomId,
+          event.messageId,
+          emit,
+          (m) => m.copyWith(reactions: event.reactions ?? m.reactions),
+        );
+        break;
     }
   }
 
@@ -237,22 +428,43 @@ class MessagesBloc extends Bloc<MessagesEvent, MessagesState> {
     emit(state.copyWith(messagesByRoom: updated));
   }
 
+  Future<void> _onConversationsRefreshRequested(
+    MessagesConversationsRefreshRequested event,
+    Emitter<MessagesState> emit,
+  ) async {
+    try {
+      final conversations = await _messagesRepository.getConversations(
+        currentUserId: state.currentUserId,
+      );
+      emit(state.copyWith(conversations: conversations));
+    } catch (_) {
+      // Rafraichissement best-effort : on garde la liste actuelle en cas d'echec.
+    }
+  }
+
+  Future<void> _onHistoryRefreshRequested(
+    MessagesHistoryRefreshRequested event,
+    Emitter<MessagesState> emit,
+  ) async {
+    try {
+      final messages = await _messagesRepository.getHistory(event.roomId);
+      final updated = Map<String, List<ChatMessage>>.from(state.messagesByRoom);
+      updated[event.roomId] = messages;
+      emit(state.copyWith(messagesByRoom: updated));
+    } catch (_) {
+      // Rafraichissement best-effort : on garde l'historique actuel en cas d'echec.
+    }
+  }
+
   Future<void> _onSocketReceived(
     MessagesSocketReceived event,
     Emitter<MessagesState> emit,
   ) async {
-    final message = ChatMessage(
-      id: event.id,
-      roomId: event.roomId,
-      senderId: event.senderId,
-      content: event.content,
-      createdAt: event.createdAt,
-      mediaUrl: event.mediaUrl,
-    );
+    final message = event.message;
     _appendMessage(message, emit);
 
-    if (event.roomId == state.activeRoomId && event.senderId != state.currentUserId) {
-      unawaited(_messagesRepository.markAsRead(event.roomId));
+    if (message.roomId == state.activeRoomId && message.senderId != state.currentUserId) {
+      unawaited(_messagesRepository.markAsRead(message.roomId));
     }
   }
 
@@ -293,6 +505,29 @@ class MessagesBloc extends Bloc<MessagesEvent, MessagesState> {
     );
   }
 
+  void _updateMessage(
+    String roomId,
+    String messageId,
+    Emitter<MessagesState> emit,
+    ChatMessage Function(ChatMessage message) transform,
+  ) {
+    final current = state.messagesByRoom[roomId];
+    if (current == null) return;
+
+    var changed = false;
+    final updatedMessages = current.map((m) {
+      if (m.id != messageId) return m;
+      changed = true;
+      return transform(m);
+    }).toList();
+
+    if (!changed) return;
+
+    final updated = Map<String, List<ChatMessage>>.from(state.messagesByRoom);
+    updated[roomId] = updatedMessages;
+    emit(state.copyWith(messagesByRoom: updated));
+  }
+
   @override
   Future<void> close() async {
     _typingTimeoutTimer?.cancel();
@@ -300,6 +535,7 @@ class MessagesBloc extends Bloc<MessagesEvent, MessagesState> {
     await _connectionSubscription?.cancel();
     await _typingSubscription?.cancel();
     await _readSubscription?.cancel();
+    await _updatesSubscription?.cancel();
     await _messagesRepository.disconnectRoom();
     return super.close();
   }

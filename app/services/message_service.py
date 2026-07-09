@@ -1,6 +1,9 @@
 from datetime import datetime, timezone
 from typing import Optional
 
+from fastapi import HTTPException, status
+from fastapi.encoders import jsonable_encoder
+
 from app.models.message import Message
 from app.models.user import User
 from app.models.service_request import ServiceRequest
@@ -64,9 +67,17 @@ async def get_conversations(user: User) -> list[ConversationOut]:
                 )
 
         # Dernier message
+        last_msg_content = last_msg_doc.get("content", "")
+        if last_msg_doc.get("is_deleted"):
+            last_msg_content = "Message supprimé"
+        elif not last_msg_content and last_msg_doc.get("media_type") == "audio":
+            last_msg_content = "🎤 Message vocal"
+        elif not last_msg_content and last_msg_doc.get("media_url"):
+            last_msg_content = "📷 Photo"
+
         last_message = LastMessageOut(
             id=str(last_msg_doc["_id"]),
-            content=last_msg_doc.get("content", ""),
+            content=last_msg_content,
             sender_id=last_msg_doc.get("sender_id", ""),
             created_at=last_msg_doc.get("created_at", datetime.now(timezone.utc)),
         )
@@ -89,12 +100,36 @@ async def get_conversations(user: User) -> list[ConversationOut]:
     return results
 
 
+async def _reply_preview(reply_to_id: Optional[str]) -> Optional[dict]:
+    if not reply_to_id:
+        return None
+    replied = await Message.get(reply_to_id)
+    if not replied:
+        return None
+    return {
+        "id": str(replied.id),
+        "sender_id": replied.sender_id,
+        "content": "Message supprimé" if replied.is_deleted else replied.content,
+        "media_type": replied.media_type,
+    }
+
+
 async def get_history(room_id: str, page: int = 1, limit: int = 50) -> dict:
     query = Message.find(Message.room_id == room_id).sort(-Message.created_at)
-    return await paginate(query, page, limit)
+    result = await paginate(query, page, limit)
+
+    data = []
+    for m in result["data"]:
+        item = jsonable_encoder(m)
+        reply_preview = await _reply_preview(m.reply_to_id)
+        if reply_preview:
+            item["reply_to"] = reply_preview
+        data.append(item)
+    result["data"] = data
+    return result
 
 
-async def send(room_id: str, body: MessageSend, user: User) -> Message:
+async def send(room_id: str, body: MessageSend, user: User) -> dict:
     # Extrait les participants depuis le room_id
     try:
         _, uid_a, uid_b = parse_room_id(room_id)
@@ -107,10 +142,15 @@ async def send(room_id: str, body: MessageSend, user: User) -> Message:
         sender_id=str(user.id),
         content=body.content,
         media_url=body.media_url,
+        media_type=body.media_type,
+        audio_duration_seconds=body.audio_duration_seconds,
         request_id=body.request_id,
+        reply_to_id=body.reply_to_id,
         participants=participants,
     )
     await msg.insert()
+
+    reply_preview = await _reply_preview(body.reply_to_id)
 
     # Diffuse en temps reel aux clients connectes sur ce salon (ex: envoi via REST
     # pendant que l'autre participant est connecte en WebSocket). L'expediteur
@@ -121,6 +161,9 @@ async def send(room_id: str, body: MessageSend, user: User) -> Message:
             "type": "text",
             "content": msg.content,
             "media_url": msg.media_url,
+            "media_type": msg.media_type,
+            "audio_duration_seconds": msg.audio_duration_seconds,
+            "reply_to": reply_preview,
             "room_id": room_id,
             "sender_id": str(user.id),
             "message_id": str(msg.id),
@@ -129,7 +172,10 @@ async def send(room_id: str, body: MessageSend, user: User) -> Message:
         exclude_user_id=str(user.id),
     )
 
-    return msg
+    result = jsonable_encoder(msg)
+    if reply_preview:
+        result["reply_to"] = reply_preview
+    return result
 
 
 async def mark_read(room_id: str, user: User) -> dict:
@@ -153,12 +199,100 @@ async def mark_read(room_id: str, user: User) -> dict:
     return {"message": "Messages marqués comme lus"}
 
 
+async def edit_message(message_id: str, content: str, user: User) -> Message:
+    msg = await Message.get(message_id)
+    if not msg:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Message introuvable")
+    if msg.sender_id != str(user.id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Non autorisé")
+    if msg.is_deleted:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Message supprimé")
+
+    msg.content = content
+    msg.edited_at = datetime.now(timezone.utc)
+    await msg.save()
+
+    await manager.send_to_room(
+        msg.room_id,
+        {
+            "type": "message_edited",
+            "room_id": msg.room_id,
+            "message_id": str(msg.id),
+            "content": msg.content,
+            "edited_at": msg.edited_at.isoformat(),
+        },
+        exclude_user_id=str(user.id),
+    )
+    return msg
+
+
+async def delete_message(message_id: str, user: User) -> Message:
+    msg = await Message.get(message_id)
+    if not msg:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Message introuvable")
+    if msg.sender_id != str(user.id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Non autorisé")
+
+    msg.is_deleted = True
+    msg.content = ""
+    msg.media_url = None
+    msg.media_type = None
+    msg.audio_duration_seconds = None
+    await msg.save()
+
+    await manager.send_to_room(
+        msg.room_id,
+        {
+            "type": "message_deleted",
+            "room_id": msg.room_id,
+            "message_id": str(msg.id),
+        },
+        exclude_user_id=str(user.id),
+    )
+    return msg
+
+
+async def toggle_reaction(message_id: str, emoji: str, user: User) -> Message:
+    msg = await Message.get(message_id)
+    if not msg:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Message introuvable")
+
+    user_id = str(user.id)
+    users_for_emoji = msg.reactions.get(emoji, [])
+    if user_id in users_for_emoji:
+        users_for_emoji = [u for u in users_for_emoji if u != user_id]
+    else:
+        users_for_emoji = [*users_for_emoji, user_id]
+
+    if users_for_emoji:
+        msg.reactions[emoji] = users_for_emoji
+    else:
+        msg.reactions.pop(emoji, None)
+
+    await msg.save()
+
+    await manager.send_to_room(
+        msg.room_id,
+        {
+            "type": "reaction_updated",
+            "room_id": msg.room_id,
+            "message_id": str(msg.id),
+            "reactions": msg.reactions,
+        },
+        exclude_user_id=user_id,
+    )
+    return msg
+
+
 async def save_message(
     room_id: str,
     sender_id: str,
     content: str,
     media_url: Optional[str] = None,
     request_id: Optional[str] = None,
+    media_type: Optional[str] = None,
+    audio_duration_seconds: Optional[float] = None,
+    reply_to_id: Optional[str] = None,
 ) -> Message:
     """Utilisée par le handler WebSocket pour persister les messages."""
     try:
@@ -172,7 +306,10 @@ async def save_message(
         sender_id=sender_id,
         content=content,
         media_url=media_url,
+        media_type=media_type,
+        audio_duration_seconds=audio_duration_seconds,
         request_id=request_id,
+        reply_to_id=reply_to_id,
         participants=participants,
     )
     await msg.insert()

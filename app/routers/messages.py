@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from app.schemas.message import MessageSend, RoomCreate, RoomOut
+from app.schemas.message import MessageSend, MessageEdit, ReactionToggle, RoomCreate, RoomOut
 from app.services import message_service
 from app.core.security import get_current_user
 from app.utils.helpers import make_room_id
@@ -35,3 +35,18 @@ async def send_message(room_id: str, body: MessageSend, current_user=Depends(get
 @router.patch("/{room_id}/read")
 async def mark_read(room_id: str, current_user=Depends(get_current_user)):
     return await message_service.mark_read(room_id, current_user)
+
+
+@router.patch("/message/{message_id}")
+async def edit_message(message_id: str, body: MessageEdit, current_user=Depends(get_current_user)):
+    return await message_service.edit_message(message_id, body.content, current_user)
+
+
+@router.delete("/message/{message_id}")
+async def delete_message(message_id: str, current_user=Depends(get_current_user)):
+    return await message_service.delete_message(message_id, current_user)
+
+
+@router.post("/message/{message_id}/react")
+async def react_to_message(message_id: str, body: ReactionToggle, current_user=Depends(get_current_user)):
+    return await message_service.toggle_reaction(message_id, body.emoji, current_user)

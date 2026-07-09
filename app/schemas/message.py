@@ -1,7 +1,14 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict, List
 from datetime import datetime
 from app.schemas.common import PyObjectId
+
+
+class ReplyPreview(BaseModel):
+    id: str
+    sender_id: str
+    content: str
+    media_type: Optional[str] = None
 
 
 class MessageOut(BaseModel):
@@ -10,8 +17,15 @@ class MessageOut(BaseModel):
     sender_id: str
     content: str
     media_url: Optional[str] = None
+    media_type: Optional[str] = None
+    audio_duration_seconds: Optional[float] = None
     is_read: bool
     request_id: Optional[str] = None
+    reply_to_id: Optional[str] = None
+    reply_to: Optional[ReplyPreview] = None
+    is_deleted: bool = False
+    edited_at: Optional[datetime] = None
+    reactions: Dict[str, List[str]] = {}
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -20,7 +34,18 @@ class MessageOut(BaseModel):
 class MessageSend(BaseModel):
     content: str
     media_url: Optional[str] = None
+    media_type: Optional[str] = None
+    audio_duration_seconds: Optional[float] = None
     request_id: Optional[str] = None   # requis pour la 1ère création d'une conversation
+    reply_to_id: Optional[str] = None
+
+
+class MessageEdit(BaseModel):
+    content: str
+
+
+class ReactionToggle(BaseModel):
+    emoji: str
 
 
 class RoomCreate(BaseModel):
@@ -73,6 +98,9 @@ class WSMessagePayload(BaseModel):
     type: str = "text"
     content: str
     media_url: Optional[str] = None
+    media_type: Optional[str] = None
+    audio_duration_seconds: Optional[float] = None
+    reply_to: Optional[ReplyPreview] = None
     room_id: str
     sender_id: str
     message_id: str

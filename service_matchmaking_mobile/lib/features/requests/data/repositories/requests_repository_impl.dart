@@ -17,12 +17,14 @@ class RequestsRepositoryImpl implements RequestsRepository {
     final raw = await _apiClient.getList('/categories', skipAuth: true);
     return raw
         .whereType<Map<dynamic, dynamic>>()
-        .map((item) => Category(
-              id: (item['id'] ?? item['_id'] ?? '').toString(),
-              name: (item['name'] ?? '').toString(),
-              slug: (item['slug'] ?? '').toString(),
-              icon: item['icon']?.toString(),
-            ))
+        .map(
+          (item) => Category(
+            id: (item['id'] ?? item['_id'] ?? '').toString(),
+            name: (item['name'] ?? '').toString(),
+            slug: (item['slug'] ?? '').toString(),
+            icon: item['icon']?.toString(),
+          ),
+        )
         .toList();
   }
 
@@ -52,7 +54,9 @@ class RequestsRepositoryImpl implements RequestsRepository {
 
     return PaginatedResult<ServiceRequest>(
       items: items,
-      total: int.tryParse((data['total'] ?? items.length).toString()) ?? items.length,
+      total:
+          int.tryParse((data['total'] ?? items.length).toString()) ??
+          items.length,
       page: int.tryParse((data['page'] ?? page).toString()) ?? page,
       limit: int.tryParse((data['limit'] ?? limit).toString()) ?? limit,
     );
@@ -63,10 +67,7 @@ class RequestsRepositoryImpl implements RequestsRepository {
     required String userId,
     String? status,
   }) async {
-    final query = <String, dynamic>{
-      'page': 1,
-      'limit': 100,
-    };
+    final query = <String, dynamic>{'page': 1, 'limit': 100};
     if (status != null && status.isNotEmpty) {
       query['status'] = status;
     }
@@ -130,12 +131,10 @@ class RequestsRepositoryImpl implements RequestsRepository {
   Future<String?> uploadRequestImage(String filePath) async {
     final data = await _apiClient.postMultipart(
       '/uploads/image',
-      data: FormData.fromMap(
-        {
-          'file': await MultipartFile.fromFile(filePath),
-          'file_type': 'request',
-        },
-      ),
+      data: FormData.fromMap({
+        'file': await MultipartFile.fromFile(filePath),
+        'file_type': 'request',
+      }),
     );
 
     return (data['url'] ?? data['file_url'] ?? data['path'])?.toString();
@@ -143,10 +142,10 @@ class RequestsRepositoryImpl implements RequestsRepository {
 
   @override
   Future<List<Proposal>> getProposalsByRequest(String requestId) async {
-    final data = await _apiClient.get('/proposals/request/$requestId', query: {
-      'page': 1,
-      'limit': 50,
-    });
+    final data = await _apiClient.get(
+      '/proposals/request/$requestId',
+      query: {'page': 1, 'limit': 50},
+    );
 
     final dynamic rawItems = data['data'] ?? data['items'] ?? <dynamic>[];
     final proposals = (rawItems is List ? rawItems : <dynamic>[])
@@ -204,46 +203,47 @@ class RequestsRepositoryImpl implements RequestsRepository {
 
   @override
   Future<List<Proposal>> getMyProposals() async {
-    final data = await _apiClient.get('/proposals/mine', query: {
-      'page': 1,
-      'limit': 100,
-    });
+    final data = await _apiClient.get(
+      '/proposals/mine',
+      query: {'page': 1, 'limit': 100},
+    );
 
     final dynamic rawItems = data['data'] ?? data['items'] ?? <dynamic>[];
     return (rawItems is List ? rawItems : <dynamic>[])
         .whereType<Map<dynamic, dynamic>>()
-        .map(
-          (item) {
-            final requestMap = _extractRequestMap(item);
-            final clientMap = requestMap?['client'];
-            final client = clientMap is Map<dynamic, dynamic> ? clientMap : null;
-            final location = requestMap?['location'];
-            final locationMap = location is Map<dynamic, dynamic> ? location : null;
+        .map((item) {
+          final requestMap = _extractRequestMap(item);
+          final clientMap = requestMap?['client'];
+          final client = clientMap is Map<dynamic, dynamic> ? clientMap : null;
+          final location = requestMap?['location'];
+          final locationMap = location is Map<dynamic, dynamic>
+              ? location
+              : null;
 
-            return Proposal(
-              id: (item['id'] ?? item['_id'] ?? '').toString(),
-              requestId: (item['request_id'] ?? '').toString(),
-              providerId: (item['provider_id'] ?? '').toString(),
-              message: (item['message'] ?? '').toString(),
-              status: (item['status'] ?? 'pending').toString(),
-              providerName: _extractProviderName(item),
-              providerAvatarUrl: _extractProviderAvatarUrl(item),
-              requestTitle: requestMap?['title']?.toString(),
-              requestUrgency: requestMap?['urgency']?.toString(),
-              requestStatus: requestMap?['status']?.toString(),
-              requestPhotos: _extractRequestPhotos(item),
-              requestCategoryId: requestMap?['category_id']?.toString(),
-              clientId: requestMap?['client_id']?.toString(),
-              clientName: client?['full_name']?.toString(),
-              clientAvatarUrl: (client?['avatar_url']?.toString().trim().isNotEmpty ?? false)
-                  ? _normalizeMediaUrl(client!['avatar_url'].toString().trim())
-                  : null,
-              clientLocationAddress: locationMap?['address']?.toString(),
-              priceEstimate: _toDoubleOrNull(item['price_estimate']),
-              createdAt: DateTime.tryParse((item['created_at'] ?? '').toString()),
-            );
-          },
-        )
+          return Proposal(
+            id: (item['id'] ?? item['_id'] ?? '').toString(),
+            requestId: (item['request_id'] ?? '').toString(),
+            providerId: (item['provider_id'] ?? '').toString(),
+            message: (item['message'] ?? '').toString(),
+            status: (item['status'] ?? 'pending').toString(),
+            providerName: _extractProviderName(item),
+            providerAvatarUrl: _extractProviderAvatarUrl(item),
+            requestTitle: requestMap?['title']?.toString(),
+            requestUrgency: requestMap?['urgency']?.toString(),
+            requestStatus: requestMap?['status']?.toString(),
+            requestPhotos: _extractRequestPhotos(item),
+            requestCategoryId: requestMap?['category_id']?.toString(),
+            clientId: requestMap?['client_id']?.toString(),
+            clientName: client?['full_name']?.toString(),
+            clientAvatarUrl:
+                (client?['avatar_url']?.toString().trim().isNotEmpty ?? false)
+                ? _normalizeMediaUrl(client!['avatar_url'].toString().trim())
+                : null,
+            clientLocationAddress: locationMap?['address']?.toString(),
+            priceEstimate: _toDoubleOrNull(item['price_estimate']),
+            createdAt: DateTime.tryParse((item['created_at'] ?? '').toString()),
+          );
+        })
         .toList();
   }
 
@@ -258,10 +258,7 @@ class RequestsRepositoryImpl implements RequestsRepository {
     );
   }
 
-  ServiceRequest _mapRequest(
-    Map<dynamic, dynamic> item, {
-    String? fallbackId,
-  }) {
+  ServiceRequest _mapRequest(Map<dynamic, dynamic> item, {String? fallbackId}) {
     final clientId = _extractClientId(item);
     final location = item['location'];
     final locationMap = location is Map<dynamic, dynamic> ? location : null;
@@ -279,7 +276,8 @@ class RequestsRepositoryImpl implements RequestsRepository {
       locationLat: _toDoubleOrNull(locationMap?['lat']),
       locationLng: _toDoubleOrNull(locationMap?['lng']),
       photos: _extractPhotos(item),
-      proposalsCount: int.tryParse((item['proposals_count'] ?? 0).toString()) ?? 0,
+      proposalsCount:
+          int.tryParse((item['proposals_count'] ?? 0).toString()) ?? 0,
       createdAt: DateTime.tryParse((item['created_at'] ?? '').toString()),
     );
   }
@@ -361,13 +359,15 @@ class RequestsRepositoryImpl implements RequestsRepository {
 
     final clientIdAsMap = item['client_id'];
     if (clientIdAsMap is Map<dynamic, dynamic>) {
-      final name = (clientIdAsMap['full_name'] ?? clientIdAsMap['name'])?.toString();
+      final name = (clientIdAsMap['full_name'] ?? clientIdAsMap['name'])
+          ?.toString();
       if (name != null && name.trim().isNotEmpty) {
         return name.trim();
       }
     }
 
-    final directName = (item['client_name'] ?? item['client_full_name'])?.toString();
+    final directName = (item['client_name'] ?? item['client_full_name'])
+        ?.toString();
     if (directName != null && directName.trim().isNotEmpty) {
       return directName.trim();
     }
@@ -386,13 +386,15 @@ class RequestsRepositoryImpl implements RequestsRepository {
 
     final clientIdAsMap = item['client_id'];
     if (clientIdAsMap is Map<dynamic, dynamic>) {
-      final raw = (clientIdAsMap['avatar_url'] ?? clientIdAsMap['avatar'])?.toString();
+      final raw = (clientIdAsMap['avatar_url'] ?? clientIdAsMap['avatar'])
+          ?.toString();
       if (raw != null && raw.trim().isNotEmpty) {
         return _normalizeMediaUrl(raw.trim());
       }
     }
 
-    final direct = (item['client_avatar_url'] ?? item['client_avatar'])?.toString();
+    final direct = (item['client_avatar_url'] ?? item['client_avatar'])
+        ?.toString();
     if (direct != null && direct.trim().isNotEmpty) {
       return _normalizeMediaUrl(direct.trim());
     }
@@ -433,7 +435,9 @@ class RequestsRepositoryImpl implements RequestsRepository {
     }
 
     if (value is Map<dynamic, dynamic>) {
-      final raw = (value['url'] ?? value['file_url'] ?? value['path'])?.toString().trim();
+      final raw = (value['url'] ?? value['file_url'] ?? value['path'])
+          ?.toString()
+          .trim();
       if (raw == null || raw.isEmpty) {
         return null;
       }
@@ -495,19 +499,30 @@ class RequestsRepositoryImpl implements RequestsRepository {
         .toSet()
         .toList();
 
+    final freshPreviews = <String, Map<String, String?>>{};
     for (final providerId in idsToFetch) {
       try {
         final data = await _apiClient.get('/users/$providerId');
         final name = (data['full_name'] ?? data['name'])?.toString().trim();
         final avatar = data['avatar_url']?.toString().trim();
-        _userPreviewCache[providerId] = {
+        final preview = <String, String?>{
           'full_name': (name != null && name.isNotEmpty) ? name : null,
           'avatar_url': (avatar != null && avatar.isNotEmpty)
               ? _normalizeMediaUrl(avatar)
               : null,
         };
+        freshPreviews[providerId] = preview;
+        // On ne memorise durablement que si un avatar existe : sinon un compte
+        // fraichement cree (sans photo au premier chargement) resterait sans
+        // avatar pour le reste de la session, meme apres l'upload d'une photo.
+        if (preview['avatar_url'] != null) {
+          _userPreviewCache[providerId] = preview;
+        }
       } catch (_) {
-        _userPreviewCache[providerId] = const {'full_name': null, 'avatar_url': null};
+        freshPreviews[providerId] = const {
+          'full_name': null,
+          'avatar_url': null,
+        };
       }
     }
 
@@ -515,7 +530,9 @@ class RequestsRepositoryImpl implements RequestsRepository {
       if (proposal.providerName != null && proposal.providerAvatarUrl != null) {
         return proposal;
       }
-      final preview = _userPreviewCache[proposal.providerId];
+      final preview =
+          _userPreviewCache[proposal.providerId] ??
+          freshPreviews[proposal.providerId];
       if (preview == null) return proposal;
       return Proposal(
         id: proposal.id,
@@ -554,19 +571,25 @@ class RequestsRepositoryImpl implements RequestsRepository {
         .toSet()
         .toList();
 
+    final freshPreviews = <String, Map<String, String?>>{};
     for (final clientId in idsToFetch) {
       try {
         final data = await _apiClient.get('/users/$clientId');
         final name = (data['full_name'] ?? data['name'])?.toString().trim();
         final avatar = data['avatar_url']?.toString().trim();
-        _userPreviewCache[clientId] = {
+        final preview = <String, String?>{
           'full_name': (name != null && name.isNotEmpty) ? name : null,
           'avatar_url': (avatar != null && avatar.isNotEmpty)
               ? _normalizeMediaUrl(avatar)
               : null,
         };
+        freshPreviews[clientId] = preview;
+        // Idem : on ne fige le cache que si un avatar existe reellement.
+        if (preview['avatar_url'] != null) {
+          _userPreviewCache[clientId] = preview;
+        }
       } catch (_) {
-        _userPreviewCache[clientId] = const {'full_name': null, 'avatar_url': null};
+        freshPreviews[clientId] = const {'full_name': null, 'avatar_url': null};
       }
     }
 
@@ -576,7 +599,8 @@ class RequestsRepositoryImpl implements RequestsRepository {
         return request;
       }
 
-      final preview = _userPreviewCache[clientId.trim()];
+      final preview =
+          _userPreviewCache[clientId.trim()] ?? freshPreviews[clientId.trim()];
       if (preview == null) {
         return request;
       }
